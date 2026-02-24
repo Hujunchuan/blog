@@ -1,0 +1,47 @@
+name: Sync Knowledge Base
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Hujunchuan/HuJunchuanKnowledgeBase
+          token: ${{ secrets.GH_TOKEN }}
+          path: content
+      
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: .
+          sparse-checkout: |
+            quartz
+            quartz.config.ts
+            quartz.layout.ts
+            package.json
+            package-lock.json
+            tsconfig.json
+            .node-version
+            .gitignore
+      
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build Quartz
+        run: npx quartz build
+      
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GH_TOKEN }}
+          publish_dir: ./public
