@@ -11,36 +11,23 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout knowledge base
-        uses: actions/checkout@v4
-        with:
-          repository: Hujunchuan/HuJunchuanKnowledgeBase
-          path: content
+      - name: Clone Knowledge Base
+        run: |
+          git clone https://github.com/Hujunchuan/HuJunchuanKnowledgeBase.git content
           
-      - name: Checkout Quartz
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          path: .
-          sparse-checkout: |
-            quartz
-            quartz.config.ts
-            quartz.layout.ts
-            package.json
-            package-lock.json
-            tsconfig.json
-            .node-version
-            .gitignore
+      - name: Checkout Quartz files
+        run: |
+          git sparse-checkout set quartz quartz.config.ts quartz.layout.ts package.json package-lock.json tsconfig.json .node-version .gitignore
           
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           
-      - name: Install dependencies
+      - name: Install
         run: npm ci
           
-      - name: Build Quartz
+      - name: Build
         run: npx quartz build
           
       - name: Deploy
