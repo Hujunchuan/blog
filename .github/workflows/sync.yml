@@ -8,14 +8,15 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout knowledge base
         uses: actions/checkout@v4
         with:
           repository: Hujunchuan/HuJunchuanKnowledgeBase
-          token: ${{ secrets.GH_TOKEN }}
           path: content
-      
+          
       - name: Checkout Quartz
         uses: actions/checkout@v4
         with:
@@ -30,19 +31,19 @@ jobs:
             tsconfig.json
             .node-version
             .gitignore
-      
+          
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-      
+          
       - name: Install dependencies
         run: npm ci
-      
+          
       - name: Build Quartz
         run: npx quartz build
-      
-      - name: Deploy to GitHub Pages
+          
+      - name: Deploy
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GH_TOKEN }}
