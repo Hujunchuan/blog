@@ -20,7 +20,7 @@ jobs:
           git sparse-checkout set quartz quartz.config.ts quartz.layout.ts package.json package-lock.json tsconfig.json .node-version .gitignore
           
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '22'
           
@@ -31,7 +31,7 @@ jobs:
         run: npx quartz build
           
       - name: Deploy
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GH_TOKEN }}
           publish_dir: ./public
