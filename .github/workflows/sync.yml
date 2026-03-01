@@ -10,14 +10,29 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pages: write
+      id-token: write
     steps:
       - name: Clone Knowledge Base
-        run: |
-          git clone https://github.com/Hujunchuan/HuJunchuanKnowledgeBase.git content
+        uses: actions/checkout@v4
+        with:
+          repository: Hujunchuan/HuJunchuanKnowledgeBase
+          path: content
+          token: ${{ secrets.GH_TOKEN }}
           
       - name: Checkout Quartz files
-        run: |
-          git sparse-checkout set quartz quartz.config.ts quartz.layout.ts package.json package-lock.json tsconfig.json .node-version .gitignore
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            quartz
+            quartz.config.ts
+            quartz.layout.ts
+            package.json
+            package-lock.json
+            tsconfig.json
+            .node-version
+            .gitignore
+          sparse-checkout-cone-mode: false
           
       - name: Setup Node
         uses: actions/setup-node@v4
