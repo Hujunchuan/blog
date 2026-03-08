@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { PointerEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
+import { PointerEvent, WheelEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
 import {
   forceCenter,
   forceCollide,
@@ -60,6 +60,20 @@ type DragState = {
   offsetX: number
   offsetY: number
   wasPinned: boolean
+} | null
+
+type ViewTransform = {
+  x: number
+  y: number
+  scale: number
+}
+
+type CanvasDragState = {
+  pointerId: number
+  originX: number
+  originY: number
+  startX: number
+  startY: number
 } | null
 
 type PositionedNode = KnowledgeGraphNode & {
@@ -526,6 +540,19 @@ function svgPointFromClient(svg: SVGSVGElement, clientX: number, clientY: number
   return { x, y }
 }
 
+function graphPointFromClient(
+  svg: SVGSVGElement,
+  clientX: number,
+  clientY: number,
+  viewTransform: ViewTransform,
+) {
+  const point = svgPointFromClient(svg, clientX, clientY)
+  return {
+    x: (point.x - viewTransform.x) / viewTransform.scale,
+    y: (point.y - viewTransform.y) / viewTransform.scale,
+  }
+}
+
 export function KnowledgeGraphView({
   sourceId,
   mode,
@@ -563,6 +590,8 @@ export function KnowledgeGraphView({
   const [pinnedNodeIds, setPinnedNodeIds] = useState<string[]>([])
   const [nodeOverrides, setNodeOverrides] = useState<Record<string, NodePosition>>({})
   const [dragState, setDragState] = useState<DragState>(null)
+  const [canvasDragState, setCanvasDragState] = useState<CanvasDragState>(null)
+  const [viewTransform, setViewTransform] = useState<ViewTransform>({ x: 0, y: 0, scale: 1 })
   const [animatedPositions, setAnimatedPositions] = useState<Record<string, NodePosition>>({})
   const [evidenceCache, setEvidenceCache] = useState<Record<string, KnowledgeEvidenceResult>>({})
   const [evidenceLoadingKey, setEvidenceLoadingKey] = useState<string | undefined>()
@@ -896,23 +925,26 @@ export function KnowledgeGraphView({
       ]
     })
 
-    const centerStrength = scope === "local" ? 0.16 : 0.08
-    const anchorStrength = scope === "local" ? 0.12 : 0.07
-    const chargeStrength = mode === "knowledge" ? -220 : -180
-    const linkBaseDistance = scope === "local" ? 68 : 96
+    const centerStrength = scope === "local" ? 0.12 : 0.06
+    const anchorStrength = scope === "local" ? 0.055 : 0.035
+    const chargeStrength = mode === "knowledge" ? -340 : -280
+    const linkBaseDistance = scope === "local" ? 72 : 104
     const simulation = forceSimulation<ForceGraphNode, ForceGraphLink>(forceNodes)
       .alpha(0.85)
       .alphaMin(0.02)
-      .alphaDecay(0.06)
-      .velocityDecay(0.3)
-      .force("charge", forceManyBody<ForceGraphNode>().strength((node) => chargeStrength - Math.min(node.weight, 8) * 18))
+      .alphaDecay(0.04)
+      .velocityDecay(0.22)
+      .force(
+        "charge",
+        forceManyBody<ForceGraphNode>().strength((node) => chargeStrength - Math.min(node.weight, 8) * 22),
+      )
       .force(
         "link",
         forceLink<ForceGraphNode, ForceGraphLink>(forceLinks)
-          .distance((link) => Math.max(44, linkBaseDistance - Math.min(link.weight, 6) * 8))
-          .strength((link) => Math.min(scope === "local" ? 0.75 : 0.55, 0.16 + link.weight * 0.08)),
+          .distance((link) => Math.max(46, linkBaseDistance - Math.min(link.weight, 6) * 10))
+          .strength((link) => Math.min(scope === "local" ? 0.88 : 0.7, 0.22 + link.weight * 0.09)),
       )
-      .force("collide", forceCollide<ForceGraphNode>().radius((node) => node.radius + 10).iterations(2))
+      .force("collide", forceCollide<ForceGraphNode>().radius((node) => node.radius + 12).iterations(2))
       .force("center", forceCenter(baseLayout.width / 2, baseLayout.height / 2).strength(centerStrength))
       .force(
         "anchor-x",
@@ -1080,6 +1112,8 @@ export function KnowledgeGraphView({
     setNodeOverrides({})
     setPinnedNodeIds([])
     setDragState(null)
+    setCanvasDragState(null)
+    setViewTransform({ x: 0, y: 0, scale: 1 })
     simulationRef.current?.alpha(0.32).restart()
   }
 
@@ -1093,7 +1127,7 @@ export function KnowledgeGraphView({
     setSelectedNodeId(node.id)
 
     const currentPosition = getCurrentNodePosition(node.id) ?? { x: node.x, y: node.y }
-    const point = svgPointFromClient(svgRef.current, event.clientX, event.clientY)
+    const point = graphPointFromClient(svgRef.current, event.clientX, event.clientY, viewTransform)
     const simulationNode = simulationNodeMapRef.current.get(node.id)
     if (simulationNode) {
       simulationNode.fx = currentPosition.x
@@ -1107,16 +1141,38 @@ export function KnowledgeGraphView({
       offsetY: point.y - currentPosition.y,
       wasPinned: pinnedNodeIds.includes(node.id),
     })
-    simulationRef.current?.alphaTarget(0.22).restart()
+    simulationRef.current?.alphaTarget(0.38).restart()
     event.currentTarget.setPointerCapture(event.pointerId)
   }
 
   const handlePointerMove = (event: PointerEvent<SVGSVGElement>) => {
-    if (!dragState || !svgRef.current) {
+    if (!svgRef.current) {
       return
     }
 
-    const point = svgPointFromClient(svgRef.current, event.clientX, event.clientY)
+    if (canvasDragState) {
+      if (event.pointerId !== canvasDragState.pointerId) {
+        return
+      }
+
+      const point = svgPointFromClient(svgRef.current, event.clientX, event.clientY)
+      setViewTransform((current) => ({
+        ...current,
+        x: canvasDragState.originX + (point.x - canvasDragState.startX),
+        y: canvasDragState.originY + (point.y - canvasDragState.startY),
+      }))
+      return
+    }
+
+    if (!dragState) {
+      return
+    }
+
+    if (event.pointerId !== dragState.pointerId) {
+      return
+    }
+
+    const point = graphPointFromClient(svgRef.current, event.clientX, event.clientY, viewTransform)
     const nextPosition = clampPosition(baseLayout.width, baseLayout.height, {
       x: point.x - dragState.offsetX,
       y: point.y - dragState.offsetY,
@@ -1135,11 +1191,23 @@ export function KnowledgeGraphView({
       [dragState.nodeId]: nextPosition,
     }
     setAnimatedPositions(animatedPositionsRef.current)
-    simulationRef.current?.alphaTarget(0.22).restart()
+    simulationRef.current?.alphaTarget(0.38).restart()
   }
 
-  const handlePointerEnd = () => {
+  const handlePointerEnd = (event?: PointerEvent<SVGSVGElement>) => {
+    if (canvasDragState) {
+      if (event && event.pointerId !== canvasDragState.pointerId) {
+        return
+      }
+      setCanvasDragState(null)
+      return
+    }
+
     if (!dragState) {
+      return
+    }
+
+    if (event && event.pointerId !== dragState.pointerId) {
       return
     }
 
@@ -1150,10 +1218,57 @@ export function KnowledgeGraphView({
     } else if (simulationNode) {
       simulationNode.fx = null
       simulationNode.fy = null
-      simulationRef.current?.alphaTarget(0).restart()
+      simulationRef.current?.alphaTarget(0.02).restart()
     }
 
     setDragState(null)
+  }
+
+  const handleCanvasPointerDown = (event: PointerEvent<SVGSVGElement>) => {
+    if (!svgRef.current) {
+      return
+    }
+
+    const target = event.target as Element | null
+    if (target?.closest(".graph-node")) {
+      return
+    }
+
+    const point = svgPointFromClient(svgRef.current, event.clientX, event.clientY)
+    setCanvasDragState({
+      pointerId: event.pointerId,
+      originX: viewTransform.x,
+      originY: viewTransform.y,
+      startX: point.x,
+      startY: point.y,
+    })
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const handleCanvasWheel = (event: WheelEvent<SVGSVGElement>) => {
+    if (!svgRef.current) {
+      return
+    }
+
+    event.preventDefault()
+    const point = svgPointFromClient(svgRef.current, event.clientX, event.clientY)
+    const zoomFactor = event.deltaY < 0 ? 1.08 : 0.92
+
+    setViewTransform((current) => {
+      const nextScale = Math.min(2.2, Math.max(0.62, current.scale * zoomFactor))
+      if (nextScale === current.scale) {
+        return current
+      }
+
+      const worldX = (point.x - current.x) / current.scale
+      const worldY = (point.y - current.y) / current.scale
+
+      return {
+        scale: nextScale,
+        x: point.x - worldX * nextScale,
+        y: point.y - worldY * nextScale,
+      }
+    })
   }
 
   return (
@@ -1350,68 +1465,79 @@ export function KnowledgeGraphView({
               className="graph-canvas"
               viewBox={`0 0 ${baseLayout.width} ${baseLayout.height}`}
               role="img"
+              style={{
+                touchAction: "none",
+                cursor: dragState || canvasDragState ? "grabbing" : "grab",
+              }}
+              onPointerDown={handleCanvasPointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerEnd}
               onPointerLeave={handlePointerEnd}
+              onPointerCancel={handlePointerEnd}
+              onWheel={handleCanvasWheel}
             >
-              {visibleEdges.map((edge) => {
-                const source = positionedMap.get(edge.source)
-                const target = positionedMap.get(edge.target)
-                if (!source || !target) {
-                  return null
-                }
+              <g transform={`translate(${viewTransform.x} ${viewTransform.y})`}>
+                <g transform={`scale(${viewTransform.scale})`}>
+                  {visibleEdges.map((edge) => {
+                    const source = positionedMap.get(edge.source)
+                    const target = positionedMap.get(edge.target)
+                    if (!source || !target) {
+                      return null
+                    }
 
-                const highlighted =
-                  selectedNode !== undefined &&
-                  (edge.source === selectedNode.id || edge.target === selectedNode.id)
+                    const highlighted =
+                      selectedNode !== undefined &&
+                      (edge.source === selectedNode.id || edge.target === selectedNode.id)
 
-                return (
-                  <line
-                    key={`${edge.source}-${edge.target}-${edgeRelationTypes(edge).join(",")}`}
-                    className="graph-edge"
-                    data-highlighted={highlighted}
-                    x1={source.x}
-                    y1={source.y}
-                    x2={target.x}
-                    y2={target.y}
-                  />
-                )
-              })}
-              {renderedNodes.map((node) => {
-                const active = selectedNode?.id === node.id
-                const pinned = pinnedNodeIds.includes(node.id)
-                return (
-                  <g
-                    key={node.id}
-                    className="graph-node"
-                    data-active={active}
-                    data-pinned={pinned}
-                    onClick={() => setSelectedNodeId(node.id)}
-                    onDoubleClick={() => {
-                      if (pinned) {
-                        resetNodePosition(node.id)
-                      } else {
-                        pinNodeAtPosition(node.id, {
-                          x: node.x,
-                          y: node.y,
-                        })
-                      }
-                    }}
-                    onPointerDown={(event) => handleNodePointerDown(event, node)}
-                  >
-                    <circle
-                      cx={node.x}
-                      cy={node.y}
-                      r={node.radius}
-                      fill={node.color}
-                      style={{ animationDelay: `${(hashValue(node.id) % 11) * 0.18}s` }}
-                    />
-                    <text x={node.x} y={node.y + node.radius + 14} textAnchor="middle">
-                      {node.label.length > 12 ? `${node.label.slice(0, 12)}...` : node.label}
-                    </text>
-                  </g>
-                )
-              })}
+                    return (
+                      <line
+                        key={`${edge.source}-${edge.target}-${edgeRelationTypes(edge).join(",")}`}
+                        className="graph-edge"
+                        data-highlighted={highlighted}
+                        x1={source.x}
+                        y1={source.y}
+                        x2={target.x}
+                        y2={target.y}
+                      />
+                    )
+                  })}
+                  {renderedNodes.map((node) => {
+                    const active = selectedNode?.id === node.id
+                    const pinned = pinnedNodeIds.includes(node.id)
+                    return (
+                      <g
+                        key={node.id}
+                        className="graph-node"
+                        data-active={active}
+                        data-pinned={pinned}
+                        onClick={() => setSelectedNodeId(node.id)}
+                        onDoubleClick={() => {
+                          if (pinned) {
+                            resetNodePosition(node.id)
+                          } else {
+                            pinNodeAtPosition(node.id, {
+                              x: node.x,
+                              y: node.y,
+                            })
+                          }
+                        }}
+                        onPointerDown={(event) => handleNodePointerDown(event, node)}
+                      >
+                        <circle
+                          cx={node.x}
+                          cy={node.y}
+                          r={node.radius}
+                          fill={node.color}
+                          style={{ animationDelay: `${(hashValue(node.id) % 11) * 0.18}s` }}
+                        />
+                        <text x={node.x} y={node.y + node.radius + 14} textAnchor="middle">
+                          {node.label.length > 12 ? `${node.label.slice(0, 12)}...` : node.label}
+                        </text>
+                      </g>
+                    )
+                  })}
+                </g>
+              </g>
             </svg>
           )}
         </div>
