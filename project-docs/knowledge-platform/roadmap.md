@@ -48,7 +48,7 @@ Status:
 
 - `/source/[sourceId]/knowledge` is live
 - `/source/[sourceId]/graph` supports `documents` and `knowledge` modes
-- graph view now supports group filters, relation-type filters, local neighborhood scope, focused node exploration, evidence jumps, draggable pinned nodes, and dense-view collapse controls
+- graph view now supports group filters, relation-type filters, local neighborhood scope, focused node exploration, evidence jumps, draggable pinned nodes, dense-view collapse controls, and richer detail panels with evidence previews
 - person extraction has been tightened to reduce noisy topical nodes from tags and transcript headings
 - structured concept and project extraction now filters long descriptive section titles more aggressively
 - tag-level concept and project extraction now filters setup and application-note labels more aggressively
@@ -57,7 +57,7 @@ Next:
 
 1. add more pivots around evidence and entity types
 2. prepare the first GitHub connector baseline
-3. improve graph detail panels and evidence previews for high-degree nodes
+3. bring node-side evidence pivots and relation filters back into the analysis page
 
 ## Phase 3: Multi-Source Federation
 

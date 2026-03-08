@@ -58,10 +58,11 @@ This document set describes the migration path from the original Quartz-based st
 - Added relation-type filters, connection details, and evidence-document jump links to the graph page.
 - Reworked the graph page toward the original Quartz-style content layout and added node pinning, drag repositioning, and layout reset.
 - Added dense-graph readability controls including leaf-node collapse, low-signal collapse, and selected-node expansion into a clustered local layout.
+- Added richer graph detail panels with relation summaries, adjacent-group breakdowns, and live evidence previews fetched per selected node.
 
 ## Next Focus
 
 1. Add deeper evidence and relation pivots in the analysis page.
 2. Add GitHub connector as the first remote source connector.
 3. Move watcher-driven sync from full refresh toward incremental sync.
-4. Improve graph detail panels with multi-edge summaries and stronger evidence previews.
+4. Add node-side evidence pivots and relation filters back into the analysis page.

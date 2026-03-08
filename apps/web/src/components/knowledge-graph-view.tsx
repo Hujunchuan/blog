@@ -1,8 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import { PointerEvent, useDeferredValue, useRef, useState } from "react"
+import { PointerEvent, useDeferredValue, useEffect, useRef, useState } from "react"
 import {
+  KnowledgeEvidenceResult,
   KnowledgeGraphEdge,
   KnowledgeGraphMode,
   KnowledgeGraphNode,
@@ -59,6 +60,11 @@ type SelectedConnection = {
   edge: KnowledgeGraphEdge
   peer: KnowledgeGraphNode
   direction: "incoming" | "outgoing"
+}
+
+type CountSummary = {
+  key: string
+  count: number
 }
 
 function hashValue(value: string) {
@@ -131,6 +137,47 @@ function edgeEvidenceSlugs(edge: KnowledgeGraphEdge) {
 
 function edgeWeight(edge: KnowledgeGraphEdge) {
   return edge.weight ?? 1
+}
+
+function buildCountSummary(values: string[]): CountSummary[] {
+  const counts = new Map<string, number>()
+
+  for (const value of values) {
+    counts.set(value, (counts.get(value) ?? 0) + 1)
+  }
+
+  return [...counts.entries()]
+    .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key, "zh-CN"))
+}
+
+function evidenceNodeKey(node: KnowledgeGraphNode | undefined) {
+  if (!node) {
+    return undefined
+  }
+
+  if (node.entityKey) {
+    return `entity:${node.entityKey}`
+  }
+
+  if (node.slug) {
+    return `slug:${node.slug}`
+  }
+
+  return undefined
+}
+
+function formatGraphDate(value: string) {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return value.slice(0, 10)
+  }
+
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(parsed)
 }
 
 function buildAdjacency(edges: KnowledgeGraphEdge[], allowedIds: Set<string>) {
@@ -483,6 +530,9 @@ export function KnowledgeGraphView({
   const [pinnedNodeIds, setPinnedNodeIds] = useState<string[]>([])
   const [nodeOverrides, setNodeOverrides] = useState<Record<string, NodePosition>>({})
   const [dragState, setDragState] = useState<DragState>(null)
+  const [evidenceCache, setEvidenceCache] = useState<Record<string, KnowledgeEvidenceResult>>({})
+  const [evidenceLoadingKey, setEvidenceLoadingKey] = useState<string | undefined>()
+  const [evidenceError, setEvidenceError] = useState<string | undefined>()
   const deferredQuery = useDeferredValue(query)
 
   const activeRelationTypeSet = new Set(activeRelationTypes)
@@ -605,8 +655,79 @@ export function KnowledgeGraphView({
       title: allDocumentLabels.get(slug) ?? slug.split("/").at(-1) ?? slug,
     }))
     .sort((a, b) => a.title.localeCompare(b.title, "zh-CN"))
+  const selectedEvidenceKey = evidenceNodeKey(selectedNode)
+  const selectedEvidenceResult = selectedEvidenceKey ? evidenceCache[selectedEvidenceKey] : undefined
+  const selectedEvidencePreviewDocuments = selectedEvidenceResult?.documents.slice(0, 6) ?? []
+  const relationSummary = buildCountSummary(selectedConnections.flatMap((connection) => edgeRelationTypes(connection.edge)))
+  const groupSummary = buildCountSummary(selectedConnections.map((connection) => connection.peer.group))
+  const selectedSummary = selectedEvidenceResult?.summary ?? {
+    relationCount: selectedConnections.length,
+    evidenceDocumentCount: selectedEvidenceDocuments.length,
+    incomingCount: selectedConnections.filter((connection) => connection.direction === "incoming").length,
+    outgoingCount: selectedConnections.filter((connection) => connection.direction === "outgoing").length,
+  }
 
   const visibleRelationTypes = [...new Set(visibleEdges.flatMap((edge) => edgeRelationTypes(edge)))]
+
+  useEffect(() => {
+    if (!selectedEvidenceKey) {
+      setEvidenceLoadingKey(undefined)
+      setEvidenceError(undefined)
+      return
+    }
+
+    if (selectedEvidenceResult) {
+      setEvidenceLoadingKey(undefined)
+      setEvidenceError(undefined)
+      return
+    }
+
+    const controller = new AbortController()
+    const params = new URLSearchParams()
+    if (selectedNode?.entityKey) {
+      params.set("entityKey", selectedNode.entityKey)
+    } else if (selectedNode?.slug) {
+      params.set("slug", selectedNode.slug)
+    } else {
+      setEvidenceLoadingKey(undefined)
+      setEvidenceError(undefined)
+      return
+    }
+
+    params.set("limit", "8")
+    setEvidenceLoadingKey(selectedEvidenceKey)
+    setEvidenceError(undefined)
+
+    fetch(`/api/source/${encodeURIComponent(sourceId)}/evidence?${params.toString()}`, {
+      signal: controller.signal,
+      cache: "no-store",
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => undefined)) as { message?: string } | undefined
+          throw new Error(payload?.message ?? "Unable to load evidence preview")
+        }
+
+        return (await response.json()) as KnowledgeEvidenceResult
+      })
+      .then((result) => {
+        setEvidenceCache((current) => ({
+          ...current,
+          [selectedEvidenceKey]: result,
+        }))
+        setEvidenceLoadingKey(undefined)
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) {
+          return
+        }
+
+        setEvidenceLoadingKey(undefined)
+        setEvidenceError(error instanceof Error ? error.message : "Unable to load evidence preview")
+      })
+
+    return () => controller.abort()
+  }, [selectedEvidenceKey, selectedEvidenceResult, selectedNode?.entityKey, selectedNode?.slug, sourceId])
 
   const setNodePinned = (nodeId: string, pinned: boolean) => {
     setPinnedNodeIds((current) => {
@@ -1016,6 +1137,54 @@ export function KnowledgeGraphView({
               </div>
 
               <div className="result-card">
+                <h3>关系摘要</h3>
+                <div className="graph-summary-grid">
+                  <div className="graph-summary-stat">
+                    <strong>{selectedConnections.length}</strong>
+                    <span>可见连接</span>
+                  </div>
+                  <div className="graph-summary-stat">
+                    <strong>{selectedSummary.relationCount}</strong>
+                    <span>关系条目</span>
+                  </div>
+                  <div className="graph-summary-stat">
+                    <strong>{selectedSummary.incomingCount}</strong>
+                    <span>向内关系</span>
+                  </div>
+                  <div className="graph-summary-stat">
+                    <strong>{selectedSummary.outgoingCount}</strong>
+                    <span>向外关系</span>
+                  </div>
+                </div>
+                <div className="graph-summary-columns">
+                  <div className="graph-summary-panel">
+                    <h4>关系类型</h4>
+                    <div className="graph-summary-list">
+                      {relationSummary.slice(0, 6).map((item) => (
+                        <div key={item.key} className="graph-summary-row">
+                          <span>{relationLabel(item.key)}</span>
+                          <strong>{item.count}</strong>
+                        </div>
+                      ))}
+                      {relationSummary.length === 0 && <div className="empty-state">当前节点还没有可见关系。</div>}
+                    </div>
+                  </div>
+                  <div className="graph-summary-panel">
+                    <h4>相邻分组</h4>
+                    <div className="graph-summary-list">
+                      {groupSummary.slice(0, 6).map((item) => (
+                        <div key={item.key} className="graph-summary-row">
+                          <span>{groupLabel(item.key)}</span>
+                          <strong>{item.count}</strong>
+                        </div>
+                      ))}
+                      {groupSummary.length === 0 && <div className="empty-state">当前节点还没有相邻节点。</div>}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="result-card">
                 <h3>连接关系</h3>
                 <div className="result-list">
                   {selectedConnections.map((connection) => {
@@ -1069,22 +1238,56 @@ export function KnowledgeGraphView({
               </div>
 
               <div className="result-card">
-                <h3>证据文档</h3>
+                <h3>证据预览</h3>
+                <div className="badge-row">
+                  <span className="badge">{`证据文档 ${selectedSummary.evidenceDocumentCount}`}</span>
+                  <span className="badge">{`快速跳转 ${selectedEvidenceDocuments.length}`}</span>
+                  {evidenceLoadingKey === selectedEvidenceKey && <span className="badge">加载中</span>}
+                </div>
                 <div className="result-list">
-                  {selectedEvidenceDocuments.map((document) => (
-                    <Link
-                      key={document.slug}
-                      href={documentHref(sourceId, document.slug)}
-                      className="graph-evidence-link"
-                      prefetch={false}
-                    >
-                      <strong>{document.title}</strong>
-                      <small>{document.slug}</small>
-                    </Link>
+                  {selectedEvidencePreviewDocuments.map((document) => (
+                    <div key={document.slug} className="graph-evidence-preview">
+                      <div className="graph-evidence-preview-header">
+                        <div>
+                          <strong>{document.title}</strong>
+                          <small>{document.slug}</small>
+                        </div>
+                        <span className="badge">{`关系 ${document.relationKeys.length}`}</span>
+                      </div>
+                      <p>{document.summary || "当前证据文档还没有可展示的摘要。"}</p>
+                      <div className="graph-evidence-meta">
+                        <span>{`更新于 ${formatGraphDate(document.updatedAt)}`}</span>
+                        <Link href={documentHref(sourceId, document.slug)} className="ghost-link" prefetch={false}>
+                          打开文档
+                        </Link>
+                      </div>
+                    </div>
                   ))}
-                  {selectedEvidenceDocuments.length === 0 && (
-                    <div className="empty-state">当前节点没有可直接跳转的证据文档。</div>
+                  {evidenceLoadingKey === selectedEvidenceKey && selectedEvidencePreviewDocuments.length === 0 && (
+                    <div className="empty-state">正在加载证据预览。</div>
                   )}
+                  {evidenceError && selectedEvidenceKey && evidenceLoadingKey !== selectedEvidenceKey && (
+                    <div className="empty-state">{evidenceError}</div>
+                  )}
+                  {selectedEvidencePreviewDocuments.length === 0 &&
+                    selectedEvidenceDocuments.length > 0 &&
+                    evidenceLoadingKey !== selectedEvidenceKey &&
+                    !evidenceError &&
+                    selectedEvidenceDocuments.slice(0, 6).map((document) => (
+                      <Link
+                        key={document.slug}
+                        href={documentHref(sourceId, document.slug)}
+                        className="graph-evidence-link"
+                        prefetch={false}
+                      >
+                        <strong>{document.title}</strong>
+                        <small>{document.slug}</small>
+                      </Link>
+                    ))}
+                  {selectedEvidencePreviewDocuments.length === 0 &&
+                    selectedEvidenceDocuments.length === 0 &&
+                    evidenceLoadingKey !== selectedEvidenceKey &&
+                    !evidenceError && <div className="empty-state">当前节点还没有可展示的证据文档。</div>}
                 </div>
               </div>
             </div>
