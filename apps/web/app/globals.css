@@ -730,6 +730,82 @@ a:hover {
   font-size: 0.9rem;
 }
 
+.lite-graph {
+  display: grid;
+  gap: 16px;
+}
+
+.lite-graph-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.lite-graph-shell {
+  border-radius: 18px;
+  border: 1px solid rgba(32, 42, 52, 0.08);
+  background: rgba(255, 255, 255, 0.92);
+  overflow: hidden;
+  cursor: grab;
+}
+
+.lite-graph-canvas {
+  width: 100%;
+  min-height: 560px;
+  display: block;
+}
+
+.lite-graph-edge {
+  stroke: rgba(91, 76, 52, 0.18);
+  stroke-width: 1.1;
+  transition:
+    stroke 140ms ease,
+    opacity 140ms ease,
+    stroke-width 140ms ease;
+}
+
+.lite-graph-edge[data-active="true"] {
+  stroke: rgba(73, 109, 138, 0.56);
+  stroke-width: 1.7;
+}
+
+.lite-graph-node {
+  cursor: pointer;
+  transition: opacity 140ms ease;
+}
+
+.lite-graph-node[data-dimmed="true"] {
+  opacity: 0.34;
+}
+
+.lite-graph-node circle {
+  stroke: rgba(255, 255, 255, 0.94);
+  stroke-width: 2;
+  transition:
+    transform 140ms ease,
+    stroke-width 140ms ease,
+    filter 140ms ease;
+}
+
+.lite-graph-node[data-active="true"] circle {
+  stroke-width: 3;
+  filter: drop-shadow(0 0 0.5rem rgba(73, 109, 138, 0.16));
+}
+
+.lite-graph-node text {
+  fill: var(--text);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.lite-graph-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
 .badge-row {
   display: flex;
   flex-wrap: wrap;
