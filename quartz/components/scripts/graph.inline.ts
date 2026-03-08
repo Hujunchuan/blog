@@ -16,7 +16,7 @@ import {
 } from "d3"
 import { Text, Graphics, Application, Container, Circle } from "pixi.js"
 import { Group as TweenGroup, Tween as Tweened } from "@tweenjs/tween.js"
-import { registerEscapeHandler, removeAllChildren } from "./util"
+import { fetchJsonOnce, registerEscapeHandler, removeAllChildren } from "./util"
 import { FullSlug, SimpleSlug, getFullSlug, resolveRelative, simplifySlug } from "../../util/path"
 import { D3Config } from "../Graph"
 
@@ -89,11 +89,14 @@ async function renderGraph(graph: HTMLElement, fullSlug: FullSlug) {
     enableRadial,
   } = JSON.parse(graph.dataset["cfg"]!) as D3Config
 
+  const dataSource = graph.dataset["indexSource"]
+  if (!dataSource) {
+    throw new Error("Missing graph index source")
+  }
+
+  const fetchedData = await fetchJsonOnce<Record<FullSlug, ContentDetails>>(dataSource)
   const data: Map<SimpleSlug, ContentDetails> = new Map(
-    Object.entries<ContentDetails>(await fetchData).map(([k, v]) => [
-      simplifySlug(k as FullSlug),
-      v,
-    ]),
+    Object.entries<ContentDetails>(fetchedData).map(([k, v]) => [simplifySlug(k as FullSlug), v]),
   )
   const links: SimpleLinkData[] = []
   const tags: SimpleSlug[] = []

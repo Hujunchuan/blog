@@ -25,6 +25,25 @@ export function removeAllChildren(node: HTMLElement) {
   }
 }
 
+const jsonCache = new Map<string, Promise<unknown>>()
+
+export async function fetchJsonOnce<T>(url: string): Promise<T> {
+  if (!jsonCache.has(url)) {
+    jsonCache.set(
+      url,
+      fetch(url).then(async (res) => {
+        if (!res.ok) {
+          throw new Error(`Failed to fetch ${url}: ${res.status}`)
+        }
+
+        return res.json()
+      }),
+    )
+  }
+
+  return jsonCache.get(url)! as Promise<T>
+}
+
 // AliasRedirect emits HTML redirects which also have the link[rel="canonical"]
 // containing the URL it's redirecting to.
 // Extracting it here with regex is _probably_ faster than parsing the entire HTML

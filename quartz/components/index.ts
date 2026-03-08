@@ -23,6 +23,9 @@ import Breadcrumbs from "./Breadcrumbs"
 import Comments from "./Comments"
 import Flex from "./Flex"
 import ConditionalRender from "./ConditionalRender"
+import KnowledgeDashboard from "./KnowledgeDashboard"
+import KnowledgeDashboardLink from "./KnowledgeDashboardLink"
+import VaultHome from "./VaultHome"
 
 export {
   ArticleTitle,
@@ -50,4 +53,7 @@ export {
   Comments,
   Flex,
   ConditionalRender,
+  KnowledgeDashboard,
+  KnowledgeDashboardLink,
+  VaultHome,
 }

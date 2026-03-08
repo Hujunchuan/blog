@@ -27,9 +27,6 @@ export function pageResources(
   baseDir: FullSlug | RelativeURL,
   staticResources: StaticResources,
 ): StaticResources {
-  const contentIndexPath = joinSegments(baseDir, "static/contentIndex.json")
-  const contentIndexScript = `const fetchData = fetch("${contentIndexPath}").then(data => data.json())`
-
   const resources: StaticResources = {
     css: [
       {
@@ -42,12 +39,6 @@ export function pageResources(
         src: joinSegments(baseDir, "prescript.js"),
         loadTime: "beforeDOMReady",
         contentType: "external",
-      },
-      {
-        loadTime: "beforeDOMReady",
-        contentType: "inline",
-        spaPreserve: true,
-        script: contentIndexScript,
       },
       ...staticResources.js,
     ],

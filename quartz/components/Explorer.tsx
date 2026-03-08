@@ -8,6 +8,7 @@ import { i18n } from "../i18n"
 import { FileTrieNode } from "../util/fileTrie"
 import OverflowListFactory from "./OverflowList"
 import { concatenateResources } from "../util/resources"
+import { joinSegments, pathToRoot } from "../util/path"
 
 type OrderEntries = "sort" | "filter" | "map"
 
@@ -60,8 +61,9 @@ export default ((userOpts?: Partial<Options>) => {
   const opts: Options = { ...defaultOptions, ...userOpts }
   const { OverflowList, overflowListAfterDOMLoaded } = OverflowListFactory()
 
-  const Explorer: QuartzComponent = ({ cfg, displayClass }: QuartzComponentProps) => {
+  const Explorer: QuartzComponent = ({ cfg, displayClass, fileData }: QuartzComponentProps) => {
     const id = `explorer-${numExplorers++}`
+    const dataSource = joinSegments(pathToRoot(fileData.slug!), "static/contentIndex.json")
 
     return (
       <div
@@ -69,6 +71,7 @@ export default ((userOpts?: Partial<Options>) => {
         data-behavior={opts.folderClickBehavior}
         data-collapsed={opts.folderDefaultState}
         data-savestate={opts.useSavedState}
+        data-index-source={dataSource}
         data-data-fns={JSON.stringify({
           order: opts.order,
           sortFn: opts.sortFn.toString(),

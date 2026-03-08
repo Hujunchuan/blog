@@ -1,6 +1,6 @@
 import FlexSearch, { DefaultDocumentSearchResults } from "flexsearch"
 import { ContentDetails } from "../../plugins/emitters/contentIndex"
-import { registerEscapeHandler, removeAllChildren } from "./util"
+import { fetchJsonOnce, registerEscapeHandler, removeAllChildren } from "./util"
 import { FullSlug, normalizeRelativeURLs, resolveRelative } from "../../util/path"
 
 interface Item {
@@ -14,6 +14,7 @@ interface Item {
 
 // Can be expanded with things like "term" in the future
 type SearchType = "basic" | "tags"
+type ContentIndex = Record<FullSlug, ContentDetails>
 let searchType: SearchType = "basic"
 let currentSearchTerm: string = ""
 const encoder = (str: string): string[] => {
@@ -82,6 +83,7 @@ let index = new FlexSearch.Document<Item>({
     ],
   },
 })
+let indexData: ContentIndex | null = null
 
 const p = new DOMParser()
 const fetchContentCache: Map<FullSlug, Element[]> = new Map()
@@ -187,7 +189,7 @@ function highlightHTML(searchTerm: string, el: HTMLElement) {
   return html.body
 }
 
-async function setupSearch(searchElement: Element, currentSlug: FullSlug, data: ContentIndex) {
+async function setupSearch(searchElement: Element, currentSlug: FullSlug) {
   const container = searchElement.querySelector(".search-container") as HTMLElement
   if (!container) return
 
@@ -202,7 +204,23 @@ async function setupSearch(searchElement: Element, currentSlug: FullSlug, data: 
   const searchLayout = searchElement.querySelector(".search-layout") as HTMLElement
   if (!searchLayout) return
 
-  const idDataMap = Object.keys(data) as FullSlug[]
+  const dataSource = (searchElement as HTMLElement).dataset.indexSource
+  if (!dataSource) return
+
+  async function ensureIndexData() {
+    if (!indexData) {
+      indexData = await fetchJsonOnce<ContentIndex>(dataSource)
+    }
+
+    return indexData
+  }
+
+  async function ensureIndexPopulated() {
+    const data = await ensureIndexData()
+    await fillDocument(data)
+    return data
+  }
+
   const appendLayout = (el: HTMLElement) => {
     searchLayout.appendChild(el)
   }
@@ -233,11 +251,16 @@ async function setupSearch(searchElement: Element, currentSlug: FullSlug, data: 
     searchButton.focus()
   }
 
-  function showSearch(searchTypeNew: SearchType) {
+  async function showSearch(searchTypeNew: SearchType) {
     searchType = searchTypeNew
     if (sidebar) sidebar.style.zIndex = "1"
     container.classList.add("active")
     searchBar.focus()
+    if (!indexPopulated) {
+      results.innerHTML = `<a class="result-card no-match"><h3>Loading index...</h3><p>Please wait a moment.</p></a>`
+      await ensureIndexPopulated()
+      removeAllChildren(results)
+    }
   }
 
   let currentHover: HTMLInputElement | null = null
@@ -245,13 +268,13 @@ async function setupSearch(searchElement: Element, currentSlug: FullSlug, data: 
     if (e.key === "k" && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
       e.preventDefault()
       const searchBarOpen = container.classList.contains("active")
-      searchBarOpen ? hideSearch() : showSearch("basic")
+      searchBarOpen ? hideSearch() : await showSearch("basic")
       return
     } else if (e.shiftKey && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
       // Hotkey to open tag search
       e.preventDefault()
       const searchBarOpen = container.classList.contains("active")
-      searchBarOpen ? hideSearch() : showSearch("tags")
+      searchBarOpen ? hideSearch() : await showSearch("tags")
 
       // add "#" prefix for tag search
       searchBar.value = "#"
@@ -308,13 +331,17 @@ async function setupSearch(searchElement: Element, currentSlug: FullSlug, data: 
   }
 
   const formatForDisplay = (term: string, id: number) => {
+    const idDataMap = Object.keys(indexData ?? {}) as FullSlug[]
     const slug = idDataMap[id]
     return {
       id,
       slug,
-      title: searchType === "tags" ? data[slug].title : highlight(term, data[slug].title ?? ""),
-      content: highlight(term, data[slug].content ?? "", true),
-      tags: highlightTags(term.substring(1), data[slug].tags),
+      title:
+        searchType === "tags"
+          ? indexData?.[slug].title
+          : highlight(term, indexData?.[slug].title ?? ""),
+      content: highlight(term, indexData?.[slug].content ?? "", true),
+      tags: highlightTags(term.substring(1), indexData?.[slug].tags ?? []),
     }
   }
 
@@ -437,6 +464,7 @@ async function setupSearch(searchElement: Element, currentSlug: FullSlug, data: 
 
   async function onType(e: HTMLElementEventMap["input"]) {
     if (!searchLayout || !index) return
+    await ensureIndexPopulated()
     currentSearchTerm = (e.target as HTMLInputElement).value
     searchLayout.classList.toggle("display-results", currentSearchTerm !== "")
     searchType = currentSearchTerm.startsWith("#") ? "tags" : "basic"
@@ -493,15 +521,18 @@ async function setupSearch(searchElement: Element, currentSlug: FullSlug, data: 
     await displayResults(finalResults)
   }
 
+  const searchButtonHandler = () => {
+    void showSearch("basic")
+  }
+
   document.addEventListener("keydown", shortcutHandler)
   window.addCleanup(() => document.removeEventListener("keydown", shortcutHandler))
-  searchButton.addEventListener("click", () => showSearch("basic"))
-  window.addCleanup(() => searchButton.removeEventListener("click", () => showSearch("basic")))
+  searchButton.addEventListener("click", searchButtonHandler)
+  window.addCleanup(() => searchButton.removeEventListener("click", searchButtonHandler))
   searchBar.addEventListener("input", onType)
   window.addCleanup(() => searchBar.removeEventListener("input", onType))
 
   registerEscapeHandler(container, hideSearch)
-  await fillDocument(data)
 }
 
 /**
@@ -532,9 +563,8 @@ async function fillDocument(data: ContentIndex) {
 
 document.addEventListener("nav", async (e: CustomEventMap["nav"]) => {
   const currentSlug = e.detail.url
-  const data = await fetchData
   const searchElement = document.getElementsByClassName("search")
   for (const element of searchElement) {
-    await setupSearch(element, currentSlug, data)
+    await setupSearch(element, currentSlug)
   }
 })

@@ -4,6 +4,7 @@ import script from "./scripts/graph.inline"
 import style from "./styles/graph.scss"
 import { i18n } from "../i18n"
 import { classNames } from "../util/lang"
+import { joinSegments, pathToRoot } from "../util/path"
 
 export interface D3Config {
   drag: boolean
@@ -60,14 +61,19 @@ const defaultOptions: GraphOptions = {
 }
 
 export default ((opts?: Partial<GraphOptions>) => {
-  const Graph: QuartzComponent = ({ displayClass, cfg }: QuartzComponentProps) => {
+  const Graph: QuartzComponent = ({ displayClass, cfg, fileData }: QuartzComponentProps) => {
     const localGraph = { ...defaultOptions.localGraph, ...opts?.localGraph }
     const globalGraph = { ...defaultOptions.globalGraph, ...opts?.globalGraph }
+    const dataSource = joinSegments(pathToRoot(fileData.slug!), "static/contentIndex.json")
     return (
       <div class={classNames(displayClass, "graph")}>
         <h3>{i18n(cfg.locale).components.graph.title}</h3>
         <div class="graph-outer">
-          <div class="graph-container" data-cfg={JSON.stringify(localGraph)}></div>
+          <div
+            class="graph-container"
+            data-cfg={JSON.stringify(localGraph)}
+            data-index-source={dataSource}
+          ></div>
           <button class="global-graph-icon" aria-label="Global Graph">
             <svg
               version="1.1"
@@ -96,7 +102,11 @@ export default ((opts?: Partial<GraphOptions>) => {
           </button>
         </div>
         <div class="global-graph-outer">
-          <div class="global-graph-container" data-cfg={JSON.stringify(globalGraph)}></div>
+          <div
+            class="global-graph-container"
+            data-cfg={JSON.stringify(globalGraph)}
+            data-index-source={dataSource}
+          ></div>
         </div>
       </div>
     )

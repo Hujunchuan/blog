@@ -1,0 +1,13 @@
+[
+  {
+    "id": "zizhiguanxing",
+    "name": "止止观行",
+    "type": "local",
+    "location": "C:/Users/god89/Documents/止止观行",
+    "enabled": true,
+    "description": "第一阶段动态平台默认知识源。",
+    "settings": {
+      "ignorePatterns": [".git", ".obsidian", "node_modules", "public"]
+    }
+  }
+]

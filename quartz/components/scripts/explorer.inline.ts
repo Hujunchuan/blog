@@ -1,6 +1,7 @@
 import { FileTrieNode } from "../../util/fileTrie"
 import { FullSlug, resolveRelative, simplifySlug } from "../../util/path"
 import { ContentDetails } from "../../plugins/emitters/contentIndex"
+import { fetchJsonOnce } from "./util"
 
 type MaybeHTMLElement = HTMLElement | undefined
 
@@ -176,7 +177,10 @@ async function setupExplorer(currentSlug: FullSlug) {
       serializedExplorerState.map((entry: FolderState) => [entry.path, entry.collapsed]),
     )
 
-    const data = await fetchData
+    const dataSource = explorer.dataset.indexSource
+    if (!dataSource) continue
+
+    const data = await fetchJsonOnce<Record<FullSlug, ContentDetails>>(dataSource)
     const entries = [...Object.entries(data)] as [FullSlug, ContentDetails][]
     const trie = FileTrieNode.fromEntries(entries)
 
@@ -209,6 +213,8 @@ async function setupExplorer(currentSlug: FullSlug) {
     const explorerUl = explorer.querySelector(".explorer-ul")
     if (!explorerUl) continue
 
+    explorerUl.replaceChildren()
+
     // Create and insert new content
     const fragment = document.createDocumentFragment()
     for (const child of trie.children) {
@@ -218,7 +224,7 @@ async function setupExplorer(currentSlug: FullSlug) {
 
       fragment.appendChild(node)
     }
-    explorerUl.insertBefore(fragment, explorerUl.firstChild)
+    explorerUl.appendChild(fragment)
 
     // restore explorer scrollTop position if it exists
     const scrollTop = sessionStorage.getItem("explorerScrollTop")

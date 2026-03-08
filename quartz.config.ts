@@ -17,7 +17,25 @@ const config: QuartzConfig = {
     },
     locale: "en-US",
     baseUrl: "quartz.jzhao.xyz",
-    ignorePatterns: ["private", "templates", ".obsidian"],
+    ignorePatterns: [
+      "private",
+      "templates",
+      "**/Templates/**",
+      "**/01_Templates/**",
+      "00_个人运行系统/002_项目管理/系统层/01_Templates/**",
+      ".obsidian",
+      ".git",
+      "**/.git/**",
+      ".github",
+      "**/.github/**",
+      ".quartz-cache",
+      "**/.quartz-cache/**",
+      "node_modules",
+      "**/node_modules/**",
+      "public",
+      "**/public/**",
+      "00_个人运行系统/002_项目管理/项目/项目4 个人博客/**",
+    ],
     defaultDateType: "modified",
     theme: {
       fontOrigin: "googleFonts",
@@ -78,8 +96,10 @@ const config: QuartzConfig = {
       Plugin.AliasRedirects(),
       Plugin.ComponentResources(),
       Plugin.ContentPage(),
+      Plugin.MissingIndexPage(),
       Plugin.FolderPage(),
       Plugin.TagPage(),
+      Plugin.KnowledgeDashboard(),
       Plugin.ContentIndex({
         enableSiteMap: true,
         enableRSS: true,
@@ -88,8 +108,8 @@ const config: QuartzConfig = {
       Plugin.Static(),
       Plugin.Favicon(),
       Plugin.NotFoundPage(),
-      // Comment out CustomOgImages to speed up build time
-      Plugin.CustomOgImages(),
+      // Disabled for this vault: some notes contain emoji/special glyphs that break OG generation.
+      // Plugin.CustomOgImages(),
     ],
   },
 }

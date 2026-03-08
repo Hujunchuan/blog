@@ -63,13 +63,25 @@ export const FrontMatter: QuartzTransformerPlugin<Partial<Options>> = (userOpts)
         () => {
           return (_, file) => {
             const fileData = Buffer.from(file.value as Uint8Array)
-            const { data } = matter(fileData, {
-              ...opts,
-              engines: {
-                yaml: (s) => yaml.load(s, { schema: yaml.JSON_SCHEMA }) as object,
-                toml: (s) => toml.parse(s) as object,
-              },
-            })
+            let data: Record<string, any> = {}
+            try {
+              data = matter(fileData, {
+                ...opts,
+                engines: {
+                  yaml: (s) => yaml.load(s, { schema: yaml.JSON_SCHEMA }) as object,
+                  toml: (s) => toml.parse(s) as object,
+                },
+              }).data
+            } catch (error) {
+              console.warn(
+                `Warning: invalid frontmatter in \`${file.path}\`, skipped parsing. ${(error as Error).message}`,
+              )
+            }
+
+            if (typeof data !== "object" || data === null || Array.isArray(data)) {
+              console.warn(`Warning: non-object frontmatter in \`${file.path}\`, skipped parsing.`)
+              data = {}
+            }
 
             if (data.title != null && data.title.toString() !== "") {
               data.title = data.title.toString()

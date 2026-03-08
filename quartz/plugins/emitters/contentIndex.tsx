@@ -21,6 +21,15 @@ export type ContentDetails = {
   description?: string
 }
 
+function summarizeContent(text: string, maxLength = 280): string {
+  const normalized = text.replace(/\s+/g, " ").trim()
+  if (normalized.length <= maxLength) {
+    return normalized
+  }
+
+  return normalized.slice(0, maxLength).trimEnd() + "..."
+}
+
 interface Options {
   enableSiteMap: boolean
   enableRSS: boolean
@@ -109,7 +118,7 @@ export const ContentIndex: QuartzEmitterPlugin<Partial<Options>> = (opts) => {
             title: file.data.frontmatter?.title!,
             links: file.data.links ?? [],
             tags: file.data.frontmatter?.tags ?? [],
-            content: file.data.text ?? "",
+            content: summarizeContent(file.data.text ?? ""),
             richContent: opts?.rssFullHtml
               ? escapeHTML(toHtml(tree as Root, { allowDangerousHtml: true }))
               : undefined,
