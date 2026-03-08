@@ -306,6 +306,7 @@ export function QuartzGraphView({
   const nodesLayerRef = useRef<Container | null>(null)
   const labelsLayerRef = useRef<Container | null>(null)
   const simulationRef = useRef<Simulation<GraphNodeData, GraphLinkData> | null>(null)
+  const renderFrameRef = useRef<number | null>(null)
   const nodeRenderRef = useRef<Map<string, NodeRenderDatum>>(new Map())
   const edgeRenderRef = useRef<EdgeRenderDatum[]>([])
   const adjacencyRef = useRef<Map<string, Set<string>>>(new Map())
@@ -334,6 +335,17 @@ export function QuartzGraphView({
   }, [graph.nodes, initialFocus])
   const [focusNodeId, setFocusNodeId] = useState<string | undefined>(defaultFocusNodeId)
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(defaultFocusNodeId)
+
+  const scheduleRender = () => {
+    if (renderFrameRef.current !== null) {
+      return
+    }
+
+    renderFrameRef.current = requestAnimationFrame(() => {
+      renderFrameRef.current = null
+      appRef.current?.render()
+    })
+  }
 
   useEffect(() => {
     selectedNodeIdRef.current = selectedNodeId
@@ -390,7 +402,7 @@ export function QuartzGraphView({
         height: CANVAS_HEIGHT,
         antialias: true,
         autoDensity: true,
-        autoStart: true,
+        autoStart: false,
         backgroundAlpha: 0,
         resolution: window.devicePixelRatio,
       })
@@ -445,6 +457,7 @@ export function QuartzGraphView({
 
         world.position.set(viewRef.current.x, viewRef.current.y)
         world.scale.set(viewRef.current.scale)
+        scheduleRender()
       }
 
       app.canvas.addEventListener("wheel", handleWheel, { passive: false })
@@ -476,6 +489,7 @@ export function QuartzGraphView({
         }
 
         world.position.set(viewRef.current.x, viewRef.current.y)
+        scheduleRender()
       })
 
       const endPan = (event?: FederatedPointerEvent) => {
@@ -505,6 +519,9 @@ export function QuartzGraphView({
     return () => {
       cancelled = true
       detach?.()
+      if (renderFrameRef.current !== null) {
+        cancelAnimationFrame(renderFrameRef.current)
+      }
       simulationRef.current?.stop()
       nodeRenderRef.current.clear()
       edgeRenderRef.current = []
@@ -545,6 +562,31 @@ export function QuartzGraphView({
     world.position.set(viewRef.current.x, viewRef.current.y)
     world.scale.set(1)
 
+    const renderScene = () => {
+      for (const { edge, gfx } of edgeRenderRef.current) {
+        gfx.clear()
+        gfx.moveTo(edge.source.x ?? 0, edge.source.y ?? 0)
+        gfx.lineTo(edge.target.x ?? 0, edge.target.y ?? 0)
+        gfx.stroke({
+          width:
+            edge.source.id === focusNodeId || edge.target.id === focusNodeId
+              ? 1.5 + Math.min(edge.weight, 4) * 0.15
+              : 1,
+          color: new Color("#8d979a"),
+          alpha: gfx.alpha || 0.22,
+        })
+      }
+
+      nodeRenderRef.current.forEach(({ node, gfx, label }) => {
+        if (typeof node.x === "number" && typeof node.y === "number") {
+          gfx.position.set(node.x, node.y)
+          label.position.set(node.x, node.y + node.radius + 12)
+        }
+      })
+
+      scheduleRender()
+    }
+
     const labelStyle = new TextStyle({
       fontFamily: "IBM Plex Sans, Noto Sans SC, sans-serif",
       fontSize: 12,
@@ -552,9 +594,9 @@ export function QuartzGraphView({
       fontWeight: "500",
     })
 
-      const applyHighlight = () => {
-        const activeNodeId = hoveredNodeIdRef.current ?? selectedNodeIdRef.current ?? focusNodeId
-        const neighbors = activeNodeId ? adjacencyRef.current.get(activeNodeId) ?? new Set<string>() : new Set<string>()
+    const applyHighlight = () => {
+      const activeNodeId = hoveredNodeIdRef.current ?? selectedNodeIdRef.current ?? focusNodeId
+      const neighbors = activeNodeId ? adjacencyRef.current.get(activeNodeId) ?? new Set<string>() : new Set<string>()
 
       nodeRenderRef.current.forEach(({ node, gfx, label }) => {
         const isActive = node.id === activeNodeId
@@ -576,8 +618,10 @@ export function QuartzGraphView({
         gfx.alpha = active ? 0.9 : 0.22
       }
 
-      applyHighlightRef.current = applyHighlight
+      renderScene()
     }
+
+    applyHighlightRef.current = applyHighlight
 
     for (const node of renderGraph.nodes) {
       const gfx = new Graphics()
@@ -614,6 +658,7 @@ export function QuartzGraphView({
         node.fx = (event.global.x - world.position.x) / world.scale.x
         node.fy = (event.global.y - world.position.y) / world.scale.y
         simulationRef.current?.alphaTarget(0.9).restart()
+        renderScene()
       })
       gfx.on("pointermove", (event: FederatedPointerEvent) => {
         if (dragNodeIdRef.current !== node.id) {
@@ -621,6 +666,7 @@ export function QuartzGraphView({
         }
         node.fx = (event.global.x - world.position.x) / world.scale.x
         node.fy = (event.global.y - world.position.y) / world.scale.y
+        renderScene()
       })
 
       const endDrag = () => {
@@ -631,6 +677,7 @@ export function QuartzGraphView({
         node.fx = null
         node.fy = null
         simulationRef.current?.alphaTarget(0)
+        renderScene()
       }
 
       gfx.on("pointerup", endDrag)
@@ -664,31 +711,8 @@ export function QuartzGraphView({
       .force("collide", forceCollide<GraphNodeData>().radius((node) => node.radius + 12).iterations(2))
 
     simulationRef.current = simulation
-
-    const renderFrame = () => {
-      for (const { edge, gfx } of edgeRenderRef.current) {
-        gfx.clear()
-        gfx.moveTo(edge.source.x ?? 0, edge.source.y ?? 0)
-        gfx.lineTo(edge.target.x ?? 0, edge.target.y ?? 0)
-        gfx.stroke({
-          width:
-            edge.source.id === focusNodeId || edge.target.id === focusNodeId
-              ? 1.5 + Math.min(edge.weight, 4) * 0.15
-              : 1,
-          color: new Color("#8d979a"),
-          alpha: gfx.alpha || 0.22,
-        })
-      }
-
-      nodeRenderRef.current.forEach(({ node, gfx, label }) => {
-        if (typeof node.x === "number" && typeof node.y === "number") {
-          gfx.position.set(node.x, node.y)
-          label.position.set(node.x, node.y + node.radius + 12)
-        }
-      })
-    }
-
-    app.ticker.add(renderFrame)
+    simulation.on("tick", renderScene)
+    simulation.on("end", renderScene)
     applyHighlight()
 
     const cooldown = window.setTimeout(() => {
@@ -698,7 +722,8 @@ export function QuartzGraphView({
 
     return () => {
       window.clearTimeout(cooldown)
-      app.ticker.remove(renderFrame)
+      simulation.on("tick", null)
+      simulation.on("end", null)
       simulation.stop()
     }
   }, [focusNodeId, renderGraph])
@@ -732,6 +757,7 @@ export function QuartzGraphView({
                 worldRef.current.position.set(viewRef.current.x, viewRef.current.y)
                 worldRef.current.scale.set(1)
               }
+              scheduleRender()
             }}
           >
             Reset view

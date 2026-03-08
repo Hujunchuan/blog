@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { KnowledgeGraphMode } from "@repo/core/types"
-import { QuartzGraphView } from "@/components/quartz-graph-view"
+import { GraphViewShell } from "@/components/graph-view-shell"
 import {
   getGraph,
   getSource,
@@ -140,7 +140,7 @@ export default async function GraphPage({
         </aside>
 
         <section className="quartz-main-column">
-          <QuartzGraphView sourceId={sourceId} mode={mode} graph={graph} initialFocus={focus} />
+          <GraphViewShell sourceId={sourceId} mode={mode} graph={graph} initialFocus={focus} />
         </section>
       </div>
     </div>
