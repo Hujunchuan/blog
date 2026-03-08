@@ -404,3 +404,29 @@ export function documentUrl(sourceId: string, document: Pick<ParsedKnowledgeDocu
 
   return `/source/${encodeURIComponent(sourceId)}/doc/${encodedSlug}`
 }
+
+export function tagEntityKey(tag: string) {
+  return `tag:${encodeURIComponent(tag.trim().replace(/\s+/g, " "))}`
+}
+
+export function knowledgeAnalysisUrl(
+  sourceId: string,
+  input: { slug?: string; entityKey?: string; depth?: number; limit?: number },
+) {
+  const params = new URLSearchParams()
+  if (input.slug) {
+    params.set("slug", input.slug)
+  }
+  if (input.entityKey) {
+    params.set("entityKey", input.entityKey)
+  }
+  if (typeof input.depth === "number") {
+    params.set("depth", String(input.depth))
+  }
+  if (typeof input.limit === "number") {
+    params.set("limit", String(input.limit))
+  }
+
+  const query = params.toString()
+  return `/source/${encodeURIComponent(sourceId)}/knowledge${query ? `?${query}` : ""}`
+}

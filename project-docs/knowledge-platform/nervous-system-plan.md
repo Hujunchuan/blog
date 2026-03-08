@@ -1,175 +1,150 @@
-# Nervous System 升级方案
+# Nervous System Upgrade Plan
 
-## 背景
+## Background
 
-当前系统已经具备：
+The current platform already supports:
 
-- 多知识源接入骨架
-- 文档持久化
+- multi-source ingestion scaffolding
+- document persistence
 - Explorer
-- 搜索
-- 基于文档链接的简化图谱
+- search
+- a simplified graph based on document links
 
-这套能力足够展示知识库，但还不够支撑后续的“知识工程”目标。当前图谱仍然主要回答：
+That is enough for a knowledge site, but not enough for a knowledge-engineering workflow. The current graph can mostly answer:
 
-- 哪篇文档链接到了哪篇文档
-- 哪个目录下有哪些文档
+- which document links to which document
+- which folder contains which documents
 
-它还不能稳定回答更高阶的问题，例如：
+It cannot yet answer higher-level questions such as:
 
-- 某个概念关联了哪些讨论、人物、项目和任务
-- 某个决策是从哪些证据链里形成的
-- 某条实践路径由哪些步骤组成
-- 某个知识点变化后，会影响哪些文档和流程
+- which concepts are connected to which meetings, projects, and tasks
+- which evidence chain supports a decision
+- which downstream nodes may be affected when one knowledge node changes
 
-因此，这次升级不直接照搬 GitNexus，而是吸收其 `nervous system` 思路，建设一层适合知识库场景的“知识神经系统”。
+The goal of this upgrade is to adopt the GitNexus-style nervous-system idea without copying its codebase model directly.
 
-## 本次升级的目标
+## Goals
 
-1. 在现有文档层之上，增加实体层和关系层。
-2. 让图谱从“文档链接图”升级为“知识结构图”。
-3. 为后续的 AI 检索、影响分析、流程追踪和多源聚合提供统一索引层。
+1. Add an entity layer and relation layer on top of documents.
+2. Upgrade the graph from a document-link graph to a knowledge-structure graph.
+3. Provide a stable indexing layer for future AI search, impact analysis, and multi-source federation.
 
-## 非目标
+## Non-Goals
 
-本轮不做：
+This phase does not try to:
 
-- 全量替换现有 Explorer / Search / Graph 的读链路
-- 引入图数据库
-- 完成 AI agent / MCP 接口
-- 一次性完成所有实体抽取与关系抽取
+- replace the whole Explorer, Search, or Graph read path at once
+- introduce a dedicated graph database
+- ship the full agent or MCP tool layer
+- solve every extraction rule in one pass
 
-## 关键改动
+## Key Changes
 
-### 1. 数据模型升级
+### 1. Data Model
 
-在现有 `sources / documents / sync_runs` 之外，增加：
+Add:
 
 - `entities`
 - `relations`
 
-这两个表是 nervous system 的最小落点。
+These are the minimum persistent tables required for the nervous-system layer.
 
-### 2. 抽取流程升级
+### 2. Extraction Flow
 
-同步流程不再只解析文档本身，还会逐步增加：
+The sync pipeline should gradually move from pure document parsing to structured extraction:
 
-- 文档中的实体识别
-- 文档中的关系识别
-- 基于规则和后续模型的结构化抽取
+- entity recognition
+- relation recognition
+- rule-based and later model-assisted structuring
 
-### 3. API 升级
+### 3. Query Layer
 
-后续新增的 API 将不再只返回文档列表和文档图谱，还会返回：
+The nervous-system APIs should support:
 
 - related nodes
 - impact analysis
-- evidence chain
-- process trace
-- cluster context
+- evidence lookup
+- later process tracing and cluster context
 
-### 4. UI 升级
+### 4. UI Layer
 
-前端图谱不会只画文档节点，还会支持：
+The UI should evolve from a plain document graph toward a typed knowledge view with:
 
-- 概念节点
-- 人物节点
-- 项目节点
-- 决策节点
-- 任务节点
+- node-type pivots
+- relation-type pivots
+- evidence drill-down
+- local impact exploration
 
-## 推荐的分阶段落地方式
+## Phased Rollout
 
-### Phase A: 基础模型落地
+### Phase A: Baseline Model
 
-目标：
+- Define `KnowledgeEntity` and `KnowledgeRelation`.
+- Add `entities` and `relations` to PostgreSQL.
+- Keep the existing site read paths stable.
 
-- 定义 `KnowledgeEntity` 和 `KnowledgeRelation`
-- 在 PostgreSQL 中增加 `entities` 和 `relations` 基础表
-- 不改现有站点读路径
+### Phase B: Minimal Extractor
 
-收益：
+Start with:
 
-- 风险最低
-- 给后续抽取和查询提供稳定落点
+- `documents.tags`
+- explicit internal document links
+- title and path heuristics where useful
 
-### Phase B: 最小抽取器
-
-目标：
-
-- 从 `documents.tags`
-- 从显式双链
-- 从标题与路径规则
-
-抽取第一批实体和关系。
-
-建议先支持的实体类型：
+Initial entity types:
 
 - `document`
+- `tag`
 - `concept`
 - `person`
 - `project`
 - `meeting`
-- `tag`
 
-建议先支持的关系类型：
+Initial relation types:
 
 - `mentions`
 - `references`
 - `belongs_to`
 - `related_to`
 
-### Phase C: 查询接口
+### Phase C: Query APIs
 
-新增：
+Add:
 
 - `GET /api/source/[sourceId]/related`
 - `GET /api/source/[sourceId]/impact`
 - `GET /api/source/[sourceId]/evidence`
 
-目标是先把“知识相关节点”和“证据链”查起来。
-
 ### Phase D: Nervous System UI
 
-在现有图谱页之外，增加一个更高阶的知识视图：
+Add a dedicated frontend surface that can:
 
-- 节点类型过滤
-- 关系类型过滤
-- 证据文档联动
-- 局部影响分析
+- pivot from documents or tags
+- show related nodes
+- show multi-hop impact
+- show evidence documents
 
-### Phase E: Agent / MCP 工具层
+### Phase E: Agent and Tooling Layer
 
-为后续 AI 能力准备工具接口：
+Prepare future tool interfaces such as:
 
 - `search_knowledge`
 - `find_related_nodes`
 - `analyze_impact`
 - `trace_process`
 
-## 当前这一轮的实际范围
+## Current Scope Already Landed
 
-本轮先做三件事：
+- nervous-system schema is in place
+- `entities / relations` persistence is in place
+- first extraction rules are in place
+- `related`, `impact`, and `evidence` APIs are in place
+- `/source/[sourceId]/knowledge` is the first integrated analysis screen
+- source and document pages now link into this workflow
 
-1. 输出 nervous system 升级文档
-2. 在代码里落下最小基础模型：
-   - core types
-   - PostgreSQL schema
-3. 将第一版 `tags / links` 抽取结果写入 `entities / relations`
+## Next Priorities
 
-这意味着：
-
-- 现有网站功能保持不变
-- 数据库已经为下一阶段做好准备
-- 第一版结构化关系已经开始落库
-- `related` 查询 API 已经可用
-- `impact` 查询 API 已经可用
-- `evidence` 查询 API 已经可用
-- 下一轮可以直接开始做前端知识视图
-
-## 进入下一轮开发时的优先级
-
-1. 在图谱页增加“知识节点模式”
-2. 为 `related / impact / evidence` 增加前端入口
-3. 扩展更多实体类型的抽取规则
-4. 为 `concept / person / project` 增加最小抽取规则
+1. Add knowledge-node mode to the graph UI.
+2. Expand extraction rules for `concept`, `person`, and `project`.
+3. Add more frontend pivots around entity types and evidence links.
+4. Keep the nervous-system layer compatible with future GitHub and remote-server connectors.

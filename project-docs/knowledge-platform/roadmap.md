@@ -1,81 +1,89 @@
-# 路线图
+# Roadmap
 
-## Phase 1
+## Phase 1: Dynamic Site Baseline
 
-- 本地目录 connector
-- Next.js 动态站点骨架
+Scope:
+
+- Local directory connector
+- Next.js application shell
 - Explorer
-- 文档页
-- 搜索
-- 简化图谱
+- Search
+- Document page
+- Simplified graph
 
-当前状态：
+Status:
 
-- 已完成并可运行
+- Completed and running
 
-## Phase 2
+## Phase 2: Persistence and Operational Baseline
 
-- PostgreSQL 接入
-- 快照持久化
-- 同步记录
-- 数据库读路径切换
+Scope:
 
-当前状态：
+- PostgreSQL integration
+- Snapshot persistence
+- Sync run tracking
+- Database-first read path
+- Admin console
+- Local watcher
 
-- `sources / documents / sync_runs` 已落地
-- 已支持手动 persist 到 PostgreSQL
-- 首页概览、搜索、单篇文档、Explorer、图谱已支持数据库优先读取
-- 已支持本地 watcher 自动同步
-- 已有最小管理台 `/admin`
+Status:
 
-下一步优先级：
+- `sources`, `documents`, and `sync_runs` are in place
+- Manual and watcher-triggered persistence are available
+- Overview, search, document page, Explorer, and graph can read from PostgreSQL first
+- `/admin` is available
 
-1. 为图谱和 Explorer 设计更稳定的物化查询模型
-2. 准备 GitHub connector
-3. 把 watcher 从全量重建推进到增量同步
+Next:
 
-## Phase 2.5
+1. Improve persisted projections for graph and Explorer.
+2. Move watcher behavior toward incremental sync.
+3. Prepare the GitHub connector baseline.
 
-- Nervous system 基础模型
-- `entities / relations` 数据表
-- 最小实体与关系抽取
-- related / impact 查询 API
+## Phase 2.5: Nervous System Baseline
 
-当前状态：
+Scope:
 
-- 升级方案文档已输出
-- core types 已落地
-- PostgreSQL schema 已预留 `entities / relations`
-- persist 已开始写入 `entities / relations`
-- 第一版抽取来源为 `documents.tags` 与内部 `documents.links`
-- `related` API 已落地，支持数据库优先和快照回退
-- `impact` API 已落地，支持多跳影响分析
-- `evidence` API 已落地，支持回读证据文档
-- 现有页面读链路暂不切换
+- Nervous-system schema
+- Minimal extraction rules
+- `related`, `impact`, and `evidence` APIs
+- First frontend entry and analysis screen
 
-下一步优先级：
+Status:
 
-1. 在图谱页增加知识节点模式
-2. 为 `related / impact / evidence` 增加前端入口
-3. 扩展更多实体类型的抽取规则
-4. 为 `concept / person / project` 增加最小抽取规则
+- `entities` and `relations` are persisted
+- First extraction rules use `documents.tags` and internal document links
+- `related`, `impact`, and `evidence` APIs are available
+- `/source/[sourceId]/knowledge` is live
+- Source and document pages now link into the analysis workflow
 
-## Phase 3
+Next:
+
+1. Add knowledge-node mode into the graph UI.
+2. Expand extraction rules for `concept`, `person`, and `project`.
+3. Add more frontend pivots and local graph exploration.
+
+## Phase 3: Multi-Source Federation
+
+Scope:
 
 - GitHub connector
-- 远程服务器 connector
-- 增量同步
-- 全局多源搜索
+- Remote server connector
+- Incremental sync
+- Cross-source search
 
-## Phase 4
+## Phase 4: Intelligence Layer
 
-- AI 摘要
-- 语义搜索
-- 关系抽取
-- 联邦知识图谱
+Scope:
 
-## Phase 5
+- AI summaries
+- Semantic search
+- richer relation extraction
+- federated knowledge graph
 
-- 权限控制
-- 协作编辑
-- 多租户或团队空间
+## Phase 5: Collaboration and Access Control
+
+Scope:
+
+- Permissions
+- Collaborative editing
+- team and tenant boundaries
