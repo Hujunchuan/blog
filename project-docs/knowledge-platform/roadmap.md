@@ -49,6 +49,7 @@ Status:
 - `/source/[sourceId]/knowledge` is live
 - `/source/[sourceId]/graph` supports `documents` and `knowledge` modes
 - graph view now supports group filters, relation-type filters, local neighborhood scope, focused node exploration, evidence jumps, draggable pinned nodes, dense-view collapse controls, and richer detail panels with evidence previews
+- graph rendering has moved from the original SVG interaction layer to a dedicated Sigma plus Graphology engine with continuous hover, focus, drag, zoom, and highlight transitions
 - knowledge analysis now supports relation-type slicing, direction slicing, impact entity-type slicing, and evidence pivots without leaving the current root node
 - person extraction has been tightened to reduce noisy topical nodes from tags and transcript headings
 - structured concept and project extraction now filters long descriptive section titles more aggressively

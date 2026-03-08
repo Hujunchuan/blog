@@ -13,6 +13,7 @@ This document set describes the migration path from the original Quartz-based st
 - `npm run watch:sources` can watch local sources and trigger automatic persistence.
 - The first nervous-system analysis screen is available at `/source/[sourceId]/knowledge`.
 - The graph page now supports both document mode and knowledge mode at `/source/[sourceId]/graph`.
+- The graph page now renders through a dedicated Sigma plus Graphology engine instead of the older SVG-only renderer.
 - The nervous-system extractor now derives `person`, `project`, and `concept` entities from tags, titles, paths, and speaker lines.
 
 ## Document List
@@ -60,6 +61,7 @@ This document set describes the migration path from the original Quartz-based st
 - Added dense-graph readability controls including leaf-node collapse, low-signal collapse, and selected-node expansion into a clustered local layout.
 - Added richer graph detail panels with relation summaries, adjacent-group breakdowns, and live evidence previews fetched per selected node.
 - Brought relation-type filters, direction filters, impact-entity slices, and evidence pivots back into `/source/[sourceId]/knowledge`.
+- Swapped the graph renderer from ad hoc SVG interaction code to a Sigma plus Graphology engine with continuous hover, focus, drag, zoom, and highlight behavior.
 
 ## Next Focus
 
