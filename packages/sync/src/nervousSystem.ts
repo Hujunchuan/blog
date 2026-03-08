@@ -40,7 +40,17 @@ const conceptSkipValues = new Set([
   "团队讨论",
 ])
 
-const leadingNoisePatterns = [/^[#*\-\d.\s]+/u, /^\[待整理书面语\]/u, /^关于/u, /^基于/u, /^面向/u, /^针对/u]
+const leadingNoisePatterns = [
+  /^[#*\-\d.\s]+/u,
+  /^[一二三四五六七八九十百]+[、.．]\s*/u,
+  /^\([一二三四五六七八九十百]+\)\s*/u,
+  /^（[一二三四五六七八九十百]+）\s*/u,
+  /^\[待整理书面语\]/u,
+  /^关于/u,
+  /^基于/u,
+  /^面向/u,
+  /^针对/u,
+]
 const trailingNoisePatterns = [
   /的探讨$/u,
   /的讨论$/u,
@@ -546,6 +556,57 @@ const personCandidateDenyPatterns = [
   /方法$/u,
   /方案$/u,
 ]
+const structuredProjectDenyPatterns = [
+  /介绍$/u,
+  /意义\d*$/u,
+  /应用场景$/u,
+  /部署进展$/u,
+  /展望$/u,
+  /局限$/u,
+  /打标$/u,
+  /使用$/u,
+  /配置$/u,
+  /问题$/u,
+  /切换$/u,
+  /协作工具$/u,
+  /开发团队$/u,
+]
+const structuredConceptDenyPatterns = [
+  /介绍$/u,
+  /总结$/u,
+  /复盘$/u,
+  /原文$/u,
+  /配置$/u,
+  /问题$/u,
+  /部署进展$/u,
+  /应用场景$/u,
+  /展望$/u,
+  /局限$/u,
+]
+const tagProjectDenyPatterns = [
+  /介绍$/u,
+  /意义\d*$/u,
+  /应用场景$/u,
+  /部署进展$/u,
+  /展望$/u,
+  /局限$/u,
+  /打标$/u,
+  /使用$/u,
+  /配置$/u,
+  /问题$/u,
+  /切换$/u,
+]
+const tagConceptDenyPatterns = [
+  /介绍$/u,
+  /总结$/u,
+  /复盘$/u,
+  /原文$/u,
+  /应用场景$/u,
+  /部署进展$/u,
+  /配置$/u,
+  /问题$/u,
+  /vs/iu,
+]
 
 function normalizeTagKey(tag: string) {
   return encodeURIComponent(tag.trim().replace(/\s+/g, " "))
@@ -739,6 +800,38 @@ function looksLikeProjectName(value: string) {
   return projectKeywordPatterns.some((pattern) => pattern.test(value))
 }
 
+function looksLikeStructuredProjectName(value: string) {
+  if (!looksLikeProjectName(value)) {
+    return false
+  }
+
+  if (value.length > 18) {
+    return false
+  }
+
+  if (/的/u.test(value)) {
+    return false
+  }
+
+  if (/[与和及]/u.test(value) && value.length > 8) {
+    return false
+  }
+
+  return !structuredProjectDenyPatterns.some((pattern) => pattern.test(value))
+}
+
+function looksLikeTagProjectName(value: string) {
+  if (!looksLikeProjectName(value) || value.length > 14) {
+    return false
+  }
+
+  if (/[的与和及]/u.test(value)) {
+    return false
+  }
+
+  return !tagProjectDenyPatterns.some((pattern) => pattern.test(value))
+}
+
 function looksLikeConceptName(value: string) {
   if (!value || value.length < 2 || value.length > 24) {
     return false
@@ -751,16 +844,44 @@ function looksLikeConceptName(value: string) {
   return /[\p{Script=Han}A-Za-z]/u.test(value)
 }
 
+function looksLikeStructuredConceptName(value: string) {
+  if (!looksLikeConceptName(value)) {
+    return false
+  }
+
+  if (looksLikeProjectName(value) || value.length > 18) {
+    return false
+  }
+
+  if (/[与和及]/u.test(value) && value.length > 10) {
+    return false
+  }
+
+  return !structuredConceptDenyPatterns.some((pattern) => pattern.test(value))
+}
+
+function looksLikeTagConceptName(value: string) {
+  if (!looksLikeConceptName(value) || looksLikeProjectName(value) || value.length > 14) {
+    return false
+  }
+
+  if (/[、，,；;：:]/u.test(value) || /[与和及]/u.test(value) || /的/u.test(value)) {
+    return false
+  }
+
+  return !tagConceptDenyPatterns.some((pattern) => pattern.test(value))
+}
+
 function classifyTagEntityType(tag: string): "person" | "project" | "concept" | undefined {
   if (looksLikePersonName(tag, { context: "tag" })) {
     return "person"
   }
 
-  if (looksLikeProjectName(tag)) {
+  if (looksLikeTagProjectName(tag)) {
     return "project"
   }
 
-  if (looksLikeConceptName(tag)) {
+  if (looksLikeTagConceptName(tag)) {
     return "concept"
   }
 
@@ -812,19 +933,19 @@ function collectStructuredCandidates(document: ParsedKnowledgeDocument) {
       continue
     }
 
-    if (looksLikeProjectName(normalized)) {
+    if (looksLikeStructuredProjectName(normalized)) {
       projects.add(normalized)
       addCandidate(projectCandidates, normalized, item.source)
     }
 
     for (const candidate of splitStructuredCandidates(item.value)) {
-      if (looksLikeProjectName(candidate)) {
+      if (looksLikeStructuredProjectName(candidate)) {
         projects.add(candidate)
         addCandidate(projectCandidates, candidate, item.source)
         continue
       }
 
-      if (looksLikeConceptName(candidate) && !looksLikePersonName(candidate)) {
+      if (looksLikeStructuredConceptName(candidate) && !looksLikePersonName(candidate)) {
         concepts.add(candidate)
         addCandidate(conceptCandidates, candidate, item.source)
       }

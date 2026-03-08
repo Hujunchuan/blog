@@ -50,12 +50,14 @@ Status:
 - `/source/[sourceId]/graph` supports `documents` and `knowledge` modes
 - graph view now supports group filters, local neighborhood scope, and focused node exploration
 - person extraction has been tightened to reduce noisy topical nodes from tags and transcript headings
+- structured concept and project extraction now filters long descriptive section titles more aggressively
+- tag-level concept and project extraction now filters setup and application-note labels more aggressively
 
 Next:
 
-1. improve extraction precision for `concept` and `project`
-2. add richer relation-aware graph interactions
-3. add more pivots around evidence and entity types
+1. add richer relation-aware graph interactions
+2. add more pivots around evidence and entity types
+3. prepare the first GitHub connector baseline
 
 ## Phase 3: Multi-Source Federation
 
