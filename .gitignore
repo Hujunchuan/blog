@@ -9,5 +9,6 @@ tsconfig.tsbuildinfo
 private/
 .env.local
 apps/web/.env.local
+apps/web/.next
 .replit
 replit.nix

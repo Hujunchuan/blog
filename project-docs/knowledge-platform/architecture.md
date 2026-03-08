@@ -16,6 +16,8 @@ flowchart LR
   C --> D["Snapshot Builder"]
   D --> E["内存快照缓存"]
   D --> F["PostgreSQL Persist"]
+  A --> H["Watcher"]
+  H --> F
   E --> G["动态站点页面/API"]
   F --> G
 ```
@@ -37,6 +39,7 @@ flowchart LR
 2. Parser 解析 Markdown、frontmatter、标签、链接和摘要
 3. Snapshot Builder 生成统一 `KnowledgeSnapshot`
 4. `persistSourceSnapshot` 将 `source / documents / sync_runs` 写入 PostgreSQL
+5. watcher 监听本地知识源变更并自动触发新一轮 persist
 
 ## 模块边界
 
@@ -77,6 +80,7 @@ flowchart LR
 - 快照持久化
 - 持久化概览、搜索、文档、Explorer、图谱查询
 - 同步记录查询
+- 本地 watcher 自动同步脚本
 
 ## 当前限制
 

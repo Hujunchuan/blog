@@ -20,6 +20,7 @@
     "db:logs": "docker compose -f compose.db.yml logs -f postgres",
     "db:init:web": "powershell -NoProfile -Command \"Invoke-WebRequest -UseBasicParsing -Method POST http://localhost:3002/api/admin/db/init | Select-Object -ExpandProperty Content\"",
     "db:persist:default": "powershell -NoProfile -Command \"Invoke-WebRequest -UseBasicParsing -Method POST http://localhost:3002/api/admin/source/zizhiguanxing/persist | Select-Object -ExpandProperty Content\"",
+    "watch:sources": "tsx scripts/watch-knowledge-sources.ts",
     "web:dev": "npm --prefix apps/web run dev",
     "web:build": "npm --prefix apps/web run build",
     "check": "tsc --noEmit && npx prettier . --check",

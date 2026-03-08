@@ -13,11 +13,17 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body>
         <div className="shell">
           <header className="site-header">
-            <div>
-              <Link href="/" className="brand">
-                Knowledge Platform
-              </Link>
-              <p className="brand-subtitle">多知识源、动态读取、面向后续统一索引的知识网站骨架</p>
+            <div className="site-header-row">
+              <div>
+                <Link href="/" className="brand">
+                  Knowledge Platform
+                </Link>
+                <p className="brand-subtitle">多知识源、动态读取、面向后续统一索引的知识网站骨架</p>
+              </div>
+              <nav className="site-nav">
+                <Link href="/">首页</Link>
+                <Link href="/admin">管理台</Link>
+              </nav>
             </div>
           </header>
           <main>{children}</main>

@@ -32,6 +32,14 @@ npm run db:persist:default
 
 完成后，首页概览、搜索、文档页、Explorer 和图谱接口会优先读取 PostgreSQL。
 
+### 5. 启动自动同步 watcher
+
+```bash
+npm run watch:sources
+```
+
+该命令会监听 `apps/web/knowledge-sources.json` 中启用的本地知识源，并在 Markdown 发生变化后自动重新 persist 到 PostgreSQL。
+
 ## 当前运行模式
 
 ### 无数据库模式
@@ -44,6 +52,7 @@ npm run db:persist:default
 - 启动 PostgreSQL
 - 初始化 schema
 - 执行 persist
+- 启动 watcher
 - 页面优先读库，失败时自动回退
 
 ## 环境变量

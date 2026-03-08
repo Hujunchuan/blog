@@ -29,6 +29,8 @@
 - 在同一次 persist 中写入 `sources / documents / sync_runs`
 - 概览、搜索、文档、Explorer、图谱支持数据库优先读取
 - 数据库不可用或该 source 尚未 persist 时，自动回退到 snapshot
+- `npm run watch:sources` 可监听本地知识源并自动触发 persist
+- `/admin` 管理台可查看数据库状态并手动触发同步
 
 ## 删除处理
 
@@ -45,9 +47,9 @@
 
 ## 当前不足
 
-- 还没有 watcher 自动触发 persist
-- 还没有增量同步
+- watcher 仍是按 source 重建和全量替换，不是增量同步
 - Explorer 和图谱虽然能读库，但仍是运行时投影，不是物化结构
+- 还没有 webhook / GitHub 事件驱动同步
 
 ## 下一阶段
 

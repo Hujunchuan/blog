@@ -25,12 +25,14 @@
 - `sources / documents / sync_runs` 已落地
 - 已支持手动 persist 到 PostgreSQL
 - 首页概览、搜索、单篇文档、Explorer、图谱已支持数据库优先读取
+- 已支持本地 watcher 自动同步
+- 已有最小管理台 `/admin`
 
 下一步优先级：
 
-1. 增加 watcher 或后台同步触发
-2. 为图谱和 Explorer 设计更稳定的物化查询模型
-3. 准备 GitHub connector
+1. 为图谱和 Explorer 设计更稳定的物化查询模型
+2. 准备 GitHub connector
+3. 把 watcher 从全量重建推进到增量同步
 
 ## Phase 3
 

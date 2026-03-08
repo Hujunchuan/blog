@@ -9,6 +9,8 @@
 - 已实现 `local` connector、parser、snapshot builder 和内存缓存
 - 已实现 PostgreSQL 基础表结构、初始化接口、持久化接口
 - 首页、概览、搜索、单篇文档、Explorer、图谱已经支持优先从 PostgreSQL 读取，失败时自动回退到内存快照
+- 已新增 `/admin` 管理台，可查看数据库状态并手动触发同步
+- 已新增 `npm run watch:sources`，可监听本地知识源并自动同步到 PostgreSQL
 
 ## 文档列表
 
@@ -40,6 +42,6 @@
 
 ## 下一步重点
 
-1. 引入自动同步触发，而不是只保留手动 persist。
-2. 为 Explorer 和图谱设计更稳定的物化读模型。
-3. 开始定义 GitHub connector 的最小实现。
+1. 为 Explorer 和图谱设计更稳定的物化读模型。
+2. 开始定义 GitHub connector 的最小实现。
+3. 为 watcher 增加更细的增量同步策略。
