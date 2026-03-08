@@ -56,10 +56,11 @@ This document set describes the migration path from the original Quartz-based st
 - Tightened structured `concept` and `project` extraction so long section headings and descriptive titles are less likely to become graph nodes.
 - Tightened tag-level `concept` and `project` classification so labels like usage, setup, or application notes are less likely to be promoted into typed nodes.
 - Added relation-type filters, connection details, and evidence-document jump links to the graph page.
+- Reworked the graph page toward the original Quartz-style content layout and added node pinning, drag repositioning, and layout reset.
 
 ## Next Focus
 
 1. Add deeper evidence and relation pivots in the analysis page.
 2. Add GitHub connector as the first remote source connector.
 3. Move watcher-driven sync from full refresh toward incremental sync.
-4. Improve graph layout and node pinning for dense knowledge views.
+4. Improve dense-graph readability with collapse, expansion, and stronger local clustering.

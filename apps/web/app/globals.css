@@ -1,14 +1,14 @@
 :root {
   color-scheme: light;
-  --bg: #f6f1e8;
-  --panel: rgba(255, 250, 242, 0.82);
-  --panel-border: rgba(91, 76, 52, 0.16);
-  --text: #2b2318;
-  --muted: #6a5b49;
-  --accent: #174c5b;
-  --accent-soft: #dce8e5;
-  --warm: #b7793f;
-  --shadow: 0 24px 60px rgba(43, 35, 24, 0.08);
+  --bg: #f8f7f2;
+  --panel: rgba(255, 255, 253, 0.94);
+  --panel-border: rgba(32, 42, 52, 0.12);
+  --text: #1f2933;
+  --muted: #5f6b76;
+  --accent: #325d88;
+  --accent-soft: rgba(50, 93, 136, 0.1);
+  --warm: #8a6a3a;
+  --shadow: 0 18px 42px rgba(31, 41, 51, 0.06);
 }
 
 * {
@@ -20,10 +20,7 @@ body {
   margin: 0;
   padding: 0;
   min-height: 100%;
-  background:
-    radial-gradient(circle at top left, rgba(183, 121, 63, 0.12), transparent 28%),
-    radial-gradient(circle at top right, rgba(23, 76, 91, 0.16), transparent 30%),
-    linear-gradient(180deg, #f4ede2 0%, var(--bg) 100%);
+  background: var(--bg);
   color: var(--text);
   font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif;
 }
@@ -38,45 +35,57 @@ a:hover {
 }
 
 .shell {
-  width: min(1200px, calc(100% - 32px));
+  width: min(1480px, calc(100% - 32px));
   margin: 0 auto;
-  padding: 24px 0 48px;
+  padding: 18px 0 48px;
 }
 
 .site-header {
-  margin-bottom: 24px;
+  margin-bottom: 28px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(32, 42, 52, 0.1);
 }
 
 .site-header-row {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: 20px;
 }
 
 .brand {
-  font-size: 1.5rem;
+  font-size: 1.35rem;
   font-weight: 800;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.01em;
+  color: var(--text);
 }
 
 .brand-subtitle {
   margin: 8px 0 0;
   color: var(--muted);
+  max-width: 640px;
+  line-height: 1.6;
 }
 
 .site-nav {
   display: flex;
-  gap: 16px;
+  gap: 8px;
   align-items: center;
 }
 
 .site-nav a {
-  padding: 10px 14px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.45);
-  border: 1px solid rgba(91, 76, 52, 0.12);
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: transparent;
+  border: 1px solid transparent;
   text-decoration: none;
+  color: var(--muted);
+}
+
+.site-nav a:hover {
+  border-color: rgba(32, 42, 52, 0.12);
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--text);
 }
 
 .page-stack {
@@ -90,10 +99,9 @@ a:hover {
 .source-card,
 .hero-card {
   border: 1px solid var(--panel-border);
-  border-radius: 24px;
+  border-radius: 18px;
   background: var(--panel);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(12px);
 }
 
 .hero {
@@ -169,6 +177,40 @@ a:hover {
 
 .panel {
   padding: 22px;
+}
+
+.quartz-page-header {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 4px;
+}
+
+.quartz-page-header h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 2.8rem);
+  line-height: 1.05;
+}
+
+.quartz-page-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 310px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.quartz-side-column {
+  display: grid;
+  gap: 18px;
+  position: sticky;
+  top: 18px;
+}
+
+.quartz-main-column {
+  min-width: 0;
+}
+
+.side-panel {
+  padding: 18px;
 }
 
 .panel-header {
@@ -373,15 +415,15 @@ a:hover {
 
 .graph-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 340px);
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  gap: 20px;
   align-items: start;
 }
 
 .graph-stage,
 .graph-sidebar {
   display: grid;
-  gap: 14px;
+  gap: 16px;
 }
 
 .graph-toolbar {
@@ -451,10 +493,11 @@ a:hover {
 }
 
 .graph-canvas-shell {
-  border-radius: 22px;
+  border-radius: 18px;
   padding: 14px;
-  background: rgba(255, 255, 255, 0.58);
-  border: 1px solid rgba(91, 76, 52, 0.12);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(32, 42, 52, 0.08);
+  overflow: hidden;
 }
 
 .graph-canvas {
@@ -474,7 +517,7 @@ a:hover {
 }
 
 .graph-node {
-  cursor: pointer;
+  cursor: grab;
 }
 
 .graph-node circle {
@@ -489,6 +532,12 @@ a:hover {
 .graph-node[data-active="true"] circle {
   stroke: var(--warm);
   stroke-width: 4;
+}
+
+.graph-node[data-pinned="true"] circle {
+  stroke: var(--accent);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 0.6rem rgba(50, 93, 136, 0.16));
 }
 
 .graph-node text {
@@ -674,6 +723,7 @@ a:hover {
   .hero,
   .compact-hero,
   .two-column,
+  .quartz-page-grid,
   .source-grid,
   .stat-grid,
   .admin-status-grid {
@@ -701,5 +751,9 @@ a:hover {
 
   .site-nav {
     flex-wrap: wrap;
+  }
+
+  .quartz-side-column {
+    position: initial;
   }
 }

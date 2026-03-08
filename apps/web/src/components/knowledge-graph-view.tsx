@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useDeferredValue, useState } from "react"
+import { PointerEvent, useDeferredValue, useRef, useState } from "react"
 import {
   KnowledgeGraphEdge,
   KnowledgeGraphMode,
@@ -39,6 +39,13 @@ const relationLabels: Record<KnowledgeRelationType, string> = {
 
 type GraphScope = "all" | "local"
 type LocalDepth = 1 | 2
+type NodePosition = { x: number; y: number }
+type DragState = {
+  nodeId: string
+  pointerId: number
+  offsetX: number
+  offsetY: number
+} | null
 
 type PositionedNode = KnowledgeGraphNode & {
   x: number
@@ -310,6 +317,20 @@ function layoutNodes(nodes: KnowledgeGraphNode[]) {
   }
 }
 
+function clampPosition(layoutWidth: number, layoutHeight: number, position: NodePosition) {
+  return {
+    x: Math.min(layoutWidth - 24, Math.max(24, position.x)),
+    y: Math.min(layoutHeight - 24, Math.max(24, position.y)),
+  }
+}
+
+function svgPointFromClient(svg: SVGSVGElement, clientX: number, clientY: number) {
+  const rect = svg.getBoundingClientRect()
+  const x = ((clientX - rect.left) / rect.width) * svg.viewBox.baseVal.width
+  const y = ((clientY - rect.top) / rect.height) * svg.viewBox.baseVal.height
+  return { x, y }
+}
+
 export function KnowledgeGraphView({
   sourceId,
   mode,
@@ -324,6 +345,7 @@ export function KnowledgeGraphView({
   }
   initialFocus?: string
 }) {
+  const svgRef = useRef<SVGSVGElement | null>(null)
   const allGroups = [...new Set(graph.nodes.map((node) => node.group))].sort((a, b) => a.localeCompare(b, "zh-CN"))
   const allRelationTypes = [...new Set(graph.edges.flatMap((edge) => edgeRelationTypes(edge)))].sort((a, b) =>
     a.localeCompare(b, "en"),
@@ -334,13 +356,18 @@ export function KnowledgeGraphView({
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(initialFocus)
   const [activeGroups, setActiveGroups] = useState<string[]>(allGroups)
   const [activeRelationTypes, setActiveRelationTypes] = useState<string[]>(allRelationTypes)
+  const [pinnedNodeIds, setPinnedNodeIds] = useState<string[]>([])
+  const [nodeOverrides, setNodeOverrides] = useState<Record<string, NodePosition>>({})
+  const [dragState, setDragState] = useState<DragState>(null)
   const deferredQuery = useDeferredValue(query)
 
   const activeRelationTypeSet = new Set(activeRelationTypes)
   const relationScopedEdges =
     activeRelationTypes.length === 0
       ? []
-      : graph.edges.filter((edge) => edgeRelationTypes(edge).some((relationType) => activeRelationTypeSet.has(relationType)))
+      : graph.edges.filter((edge) =>
+          edgeRelationTypes(edge).some((relationType) => activeRelationTypeSet.has(relationType)),
+        )
 
   const visibleIds =
     activeRelationTypes.length === 0
@@ -368,8 +395,17 @@ export function KnowledgeGraphView({
     degreeMap.set(edge.target, (degreeMap.get(edge.target) ?? 0) + 1)
   }
 
-  const layout = layoutNodes(visibleNodes)
-  const positionedMap = new Map(layout.nodes.map((node) => [node.id, node]))
+  const baseLayout = layoutNodes(visibleNodes)
+  const layoutNodesWithOverrides = baseLayout.nodes.map((node) => {
+    const override = nodeOverrides[node.id]
+    return override
+      ? {
+          ...node,
+          ...clampPosition(baseLayout.width, baseLayout.height, override),
+        }
+      : node
+  })
+  const positionedMap = new Map(layoutNodesWithOverrides.map((node) => [node.id, node]))
   const allDocumentLabels = new Map(
     graph.nodes
       .filter((node) => node.group === "document" && typeof node.slug === "string")
@@ -381,6 +417,8 @@ export function KnowledgeGraphView({
     visibleNodes.find((node) => node.id === initialFocus) ??
     visibleNodes[0]
   const selectedNodeHref = selectedNode ? graphNodeHref(sourceId, mode, selectedNode) : undefined
+  const selectedPosition = selectedNode ? positionedMap.get(selectedNode.id) : undefined
+  const selectedNodePinned = selectedNode ? pinnedNodeIds.includes(selectedNode.id) : false
 
   const selectedConnections: SelectedConnection[] = selectedNode
     ? visibleEdges
@@ -411,8 +449,12 @@ export function KnowledgeGraphView({
         )
     : []
 
-  const selectedNodeRelationTypes = [...new Set(selectedConnections.flatMap((connection) => edgeRelationTypes(connection.edge)))]
-  const selectedEvidenceDocuments = [...new Set(selectedConnections.flatMap((connection) => edgeEvidenceSlugs(connection.edge)))]
+  const selectedNodeRelationTypes = [
+    ...new Set(selectedConnections.flatMap((connection) => edgeRelationTypes(connection.edge))),
+  ]
+  const selectedEvidenceDocuments = [
+    ...new Set(selectedConnections.flatMap((connection) => edgeEvidenceSlugs(connection.edge))),
+  ]
     .map((slug) => ({
       slug,
       title: allDocumentLabels.get(slug) ?? slug.split("/").at(-1) ?? slug,
@@ -420,6 +462,69 @@ export function KnowledgeGraphView({
     .sort((a, b) => a.title.localeCompare(b.title, "zh-CN"))
 
   const visibleRelationTypes = [...new Set(visibleEdges.flatMap((edge) => edgeRelationTypes(edge)))]
+
+  const setNodePinned = (nodeId: string, pinned: boolean) => {
+    setPinnedNodeIds((current) => {
+      if (pinned) {
+        return current.includes(nodeId) ? current : [...current, nodeId]
+      }
+      return current.filter((item) => item !== nodeId)
+    })
+  }
+
+  const resetNodePosition = (nodeId: string) => {
+    setNodeOverrides((current) => {
+      const next = { ...current }
+      delete next[nodeId]
+      return next
+    })
+    setPinnedNodeIds((current) => current.filter((item) => item !== nodeId))
+  }
+
+  const resetLayout = () => {
+    setNodeOverrides({})
+    setPinnedNodeIds([])
+    setDragState(null)
+  }
+
+  const handleNodePointerDown = (event: PointerEvent<SVGGElement>, node: PositionedNode) => {
+    if (!svgRef.current) {
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    setSelectedNodeId(node.id)
+    setNodePinned(node.id, true)
+
+    const point = svgPointFromClient(svgRef.current, event.clientX, event.clientY)
+    setDragState({
+      nodeId: node.id,
+      pointerId: event.pointerId,
+      offsetX: point.x - node.x,
+      offsetY: point.y - node.y,
+    })
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const handlePointerMove = (event: PointerEvent<SVGSVGElement>) => {
+    if (!dragState || !svgRef.current) {
+      return
+    }
+
+    const point = svgPointFromClient(svgRef.current, event.clientX, event.clientY)
+    setNodeOverrides((current) => ({
+      ...current,
+      [dragState.nodeId]: clampPosition(baseLayout.width, baseLayout.height, {
+        x: point.x - dragState.offsetX,
+        y: point.y - dragState.offsetY,
+      }),
+    }))
+  }
+
+  const handlePointerEnd = () => {
+    setDragState(null)
+  }
 
   return (
     <div className="graph-workspace">
@@ -438,6 +543,7 @@ export function KnowledgeGraphView({
             <span className="badge">{`可见边 ${visibleEdges.length}`}</span>
             <span className="badge">{`分组 ${new Set(visibleNodes.map((node) => node.group)).size}`}</span>
             <span className="badge">{`关系类型 ${visibleRelationTypes.length}`}</span>
+            <span className="badge">{`固定节点 ${pinnedNodeIds.length}`}</span>
           </div>
         </div>
 
@@ -530,13 +636,50 @@ export function KnowledgeGraphView({
               </button>
             </div>
           </div>
+
+          <div className="graph-control-group">
+            <span className="graph-control-label">布局工具</span>
+            <div className="graph-pill-row">
+              <button type="button" className="graph-pill" data-active="false" onClick={resetLayout}>
+                重置布局
+              </button>
+              {selectedNode && (
+                <button
+                  type="button"
+                  className="graph-pill"
+                  data-active={selectedNodePinned}
+                  onClick={() => {
+                    if (selectedNodePinned) {
+                      resetNodePosition(selectedNode.id)
+                    } else if (selectedPosition) {
+                      setNodeOverrides((current) => ({
+                        ...current,
+                        [selectedNode.id]: { x: selectedPosition.x, y: selectedPosition.y },
+                      }))
+                      setNodePinned(selectedNode.id, true)
+                    }
+                  }}
+                >
+                  {selectedNodePinned ? "取消固定" : "固定节点"}
+                </button>
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="graph-canvas-shell">
           {visibleNodes.length === 0 ? (
             <div className="empty-state">没有命中节点，可以换个关键词或重置筛选。</div>
           ) : (
-            <svg className="graph-canvas" viewBox={`0 0 ${layout.width} ${layout.height}`} role="img">
+            <svg
+              ref={svgRef}
+              className="graph-canvas"
+              viewBox={`0 0 ${baseLayout.width} ${baseLayout.height}`}
+              role="img"
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerEnd}
+              onPointerLeave={handlePointerEnd}
+            >
               {visibleEdges.map((edge) => {
                 const source = positionedMap.get(edge.source)
                 const target = positionedMap.get(edge.target)
@@ -560,14 +703,28 @@ export function KnowledgeGraphView({
                   />
                 )
               })}
-              {layout.nodes.map((node) => {
+              {layoutNodesWithOverrides.map((node) => {
                 const active = selectedNode?.id === node.id
+                const pinned = pinnedNodeIds.includes(node.id)
                 return (
                   <g
                     key={node.id}
                     className="graph-node"
                     data-active={active}
+                    data-pinned={pinned}
                     onClick={() => setSelectedNodeId(node.id)}
+                    onDoubleClick={() => {
+                      if (pinned) {
+                        resetNodePosition(node.id)
+                      } else {
+                        setNodeOverrides((current) => ({
+                          ...current,
+                          [node.id]: { x: node.x, y: node.y },
+                        }))
+                        setNodePinned(node.id, true)
+                      }
+                    }}
+                    onPointerDown={(event) => handleNodePointerDown(event, node)}
                   >
                     <circle cx={node.x} cy={node.y} r={node.radius} fill={node.color} />
                     <text x={node.x} y={node.y + node.radius + 14} textAnchor="middle">
@@ -594,7 +751,7 @@ export function KnowledgeGraphView({
           <div className="panel-header">
             <div>
               <h2>节点详情</h2>
-              <p>点击图谱中的节点可以聚焦、筛关系、查看证据并直接跳转到对应页面。</p>
+              <p>点击、拖拽或双击节点，可以聚焦、固定位置、查看证据并直接跳转到对应页面。</p>
             </div>
           </div>
           {selectedNode ? (
@@ -606,6 +763,7 @@ export function KnowledgeGraphView({
                   <span className="badge">{`连接数 ${degreeMap.get(selectedNode.id) ?? 0}`}</span>
                   <span className="badge">{`权重 ${selectedNode.weight}`}</span>
                   <span className="badge">{`关系类型 ${selectedNodeRelationTypes.length}`}</span>
+                  <span className="badge">{selectedNodePinned ? "已固定" : "未固定"}</span>
                 </div>
                 {selectedNodeRelationTypes.length > 0 && (
                   <div className="badge-row">
@@ -627,6 +785,37 @@ export function KnowledgeGraphView({
                   )}
                   <button type="button" className="graph-inline-button" onClick={() => setScope("local")}>
                     只看这个节点的邻域
+                  </button>
+                </div>
+              </div>
+
+              <div className="result-card">
+                <h3>布局状态</h3>
+                <p>
+                  {selectedNodePinned
+                    ? "当前节点已经固定，可以继续拖拽到合适位置。"
+                    : "拖拽节点会自动固定位置，双击节点可以切换固定状态。"}
+                </p>
+                <div className="action-row">
+                  <button
+                    type="button"
+                    className="graph-inline-button"
+                    onClick={() => {
+                      if (selectedNodePinned) {
+                        resetNodePosition(selectedNode.id)
+                      } else if (selectedPosition) {
+                        setNodeOverrides((current) => ({
+                          ...current,
+                          [selectedNode.id]: { x: selectedPosition.x, y: selectedPosition.y },
+                        }))
+                        setNodePinned(selectedNode.id, true)
+                      }
+                    }}
+                  >
+                    {selectedNodePinned ? "取消固定" : "固定节点"}
+                  </button>
+                  <button type="button" className="graph-inline-button" onClick={() => resetNodePosition(selectedNode.id)}>
+                    恢复自动布局
                   </button>
                 </div>
               </div>
