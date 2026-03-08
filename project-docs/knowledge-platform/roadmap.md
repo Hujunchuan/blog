@@ -34,6 +34,29 @@
 2. 准备 GitHub connector
 3. 把 watcher 从全量重建推进到增量同步
 
+## Phase 2.5
+
+- Nervous system 基础模型
+- `entities / relations` 数据表
+- 最小实体与关系抽取
+- related / impact 查询 API
+
+当前状态：
+
+- 升级方案文档已输出
+- core types 已落地
+- PostgreSQL schema 已预留 `entities / relations`
+- persist 已开始写入 `entities / relations`
+- 第一版抽取来源为 `documents.tags` 与内部 `documents.links`
+- 现有页面读链路暂不切换
+
+下一步优先级：
+
+1. 补 `related` 查询 API
+2. 为 `entities / relations` 增加最小查询函数
+3. 在图谱页增加知识节点模式
+4. 扩展更多实体类型的抽取规则
+
 ## Phase 3
 
 - GitHub connector

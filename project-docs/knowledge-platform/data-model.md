@@ -55,6 +55,8 @@
 - `sources`
 - `documents`
 - `sync_runs`
+- `entities`
+- `relations`
 
 ## PostgreSQL 表
 
@@ -80,6 +82,33 @@
 - 主键：`id`
 - 索引：`source_id`
 - 索引：`started_at desc`
+
+### `entities`
+
+- 主键：`id`
+- 唯一键：`source_id + entity_key`
+- 索引：`source_id`
+- 索引：`source_id + entity_type`
+- 索引：`source_id + slug`
+- 索引：`source_id + document_slug`
+- 用途：承接概念、人物、项目、任务、标签等知识实体
+- 当前第一版已实际写入：
+  - `document`
+  - `tag`
+
+### `relations`
+
+- 主键：`id`
+- 唯一键：`source_id + relation_key`
+- 索引：`source_id`
+- 索引：`source_id + relation_type`
+- 索引：`source_id + from_entity_key`
+- 索引：`source_id + to_entity_key`
+- 索引：`source_id + evidence_document_slug`
+- 用途：承接实体间的结构化关系与证据来源
+- 当前第一版已实际写入：
+  - `belongs_to`
+  - `references`
 
 ## 当前查询模型
 
@@ -113,6 +142,29 @@ PostgreSQL 已支持直接回读：
 - `tags`
 - `document_tags`
 - 物化图谱表或缓存表
+- `clusters`
+- `cluster_members`
+- `processes`
+- `process_steps`
+- `process_edges`
+
+## Nervous System 第一版抽取规则
+
+### 实体生成
+
+1. 每篇文档生成一个 `document` 实体
+2. 每个标签生成一个 `tag` 实体
+
+### 关系生成
+
+1. 文档到标签生成 `belongs_to`
+2. 文档到内部链接目标文档生成 `references`
+
+### 当前限制
+
+- 还没有人物、项目、决策、任务的显式抽取
+- 还没有 unresolved link 的占位实体
+- 还没有 clusters / processes
 
 ## 重要约束
 

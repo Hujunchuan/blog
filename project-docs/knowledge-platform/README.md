@@ -11,6 +11,7 @@
 - 首页、概览、搜索、单篇文档、Explorer、图谱已经支持优先从 PostgreSQL 读取，失败时自动回退到内存快照
 - 已新增 `/admin` 管理台，可查看数据库状态并手动触发同步
 - 已新增 `npm run watch:sources`，可监听本地知识源并自动同步到 PostgreSQL
+- 已接入 nervous system 第一版基础模型，并在 persist 时写入 `entities / relations`
 
 ## 文档列表
 
@@ -20,6 +21,7 @@
 - `connectors.md`: 多知识源接入规范
 - `parser-spec.md`: Markdown 与元数据解析规范
 - `sync-pipeline.md`: 采集、解析、入库、回退链路
+- `nervous-system-plan.md`: 知识神经系统升级方案与分阶段落地路径
 - `deployment.md`: 本地开发、数据库启动和运行方式
 - `operations.md`: 运维与排障
 - `roadmap.md`: 分阶段实施路线
@@ -45,3 +47,4 @@
 1. 为 Explorer 和图谱设计更稳定的物化读模型。
 2. 开始定义 GitHub connector 的最小实现。
 3. 为 watcher 增加更细的增量同步策略。
+4. 基于 `tags / links` 扩展第一版 `related` 查询 API。

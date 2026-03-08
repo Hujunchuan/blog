@@ -32,6 +32,55 @@ export interface ParsedKnowledgeDocument {
   updatedAt: string
 }
 
+export type KnowledgeEntityType =
+  | "document"
+  | "concept"
+  | "person"
+  | "project"
+  | "meeting"
+  | "decision"
+  | "task"
+  | "practice"
+  | "tag"
+
+export type KnowledgeRelationType =
+  | "mentions"
+  | "references"
+  | "explains"
+  | "belongs_to"
+  | "derived_from"
+  | "decides"
+  | "supports"
+  | "contradicts"
+  | "related_to"
+  | "next_step_for"
+
+export interface KnowledgeEntity {
+  sourceId: string
+  entityKey: string
+  entityType: KnowledgeEntityType
+  canonicalName: string
+  slug?: string
+  documentSlug?: string
+  metadata?: Record<string, unknown>
+}
+
+export interface KnowledgeRelation {
+  sourceId: string
+  relationKey: string
+  relationType: KnowledgeRelationType
+  fromEntityKey: string
+  toEntityKey: string
+  evidenceDocumentSlug?: string
+  weight?: number
+  metadata?: Record<string, unknown>
+}
+
+export interface KnowledgeNervousSystemSnapshot {
+  entities: KnowledgeEntity[]
+  relations: KnowledgeRelation[]
+}
+
 export interface ExplorerNode {
   id: string
   name: string

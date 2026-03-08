@@ -64,7 +64,7 @@ export function createTree(documents: ParsedKnowledgeDocument[]) {
   return sortNodes(treeRoot.children)
 }
 
-function resolveInternalTarget(
+export function resolveInternalTarget(
   document: ParsedKnowledgeDocument,
   target: string,
   bySlug: Map<string, ParsedKnowledgeDocument>,
