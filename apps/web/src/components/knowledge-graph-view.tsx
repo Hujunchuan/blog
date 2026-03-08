@@ -568,6 +568,7 @@ export function KnowledgeGraphView({
   initialFocus?: string
 }) {
   const svgRef = useRef<SVGSVGElement | null>(null)
+  const canvasShellRef = useRef<HTMLDivElement | null>(null)
   const publishFrameRef = useRef<number | null>(null)
   const animatedPositionsRef = useRef<Record<string, NodePosition>>({})
   const simulationRef = useRef<Simulation<ForceGraphNode, ForceGraphLink> | null>(null)
@@ -1245,14 +1246,13 @@ export function KnowledgeGraphView({
     event.currentTarget.setPointerCapture(event.pointerId)
   }
 
-  const handleCanvasWheel = (event: WheelEvent<SVGSVGElement>) => {
+  const zoomGraphAtPoint = (clientX: number, clientY: number, deltaY: number) => {
     if (!svgRef.current) {
       return
     }
 
-    event.preventDefault()
-    const point = svgPointFromClient(svgRef.current, event.clientX, event.clientY)
-    const zoomFactor = event.deltaY < 0 ? 1.08 : 0.92
+    const point = svgPointFromClient(svgRef.current, clientX, clientY)
+    const zoomFactor = deltaY < 0 ? 1.08 : 0.92
 
     setViewTransform((current) => {
       const nextScale = Math.min(2.2, Math.max(0.62, current.scale * zoomFactor))
@@ -1270,6 +1270,35 @@ export function KnowledgeGraphView({
       }
     })
   }
+
+  const handleCanvasWheel = (event: WheelEvent<SVGSVGElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    zoomGraphAtPoint(event.clientX, event.clientY, event.deltaY)
+  }
+
+  useEffect(() => {
+    const element = canvasShellRef.current
+    if (!element) {
+      return
+    }
+
+    const handleNativeWheel = (event: globalThis.WheelEvent) => {
+      const target = event.target as Node | null
+      if (target && !element.contains(target)) {
+        return
+      }
+
+      event.preventDefault()
+      event.stopPropagation()
+      zoomGraphAtPoint(event.clientX, event.clientY, event.deltaY)
+    }
+
+    element.addEventListener("wheel", handleNativeWheel, { passive: false })
+    return () => {
+      element.removeEventListener("wheel", handleNativeWheel)
+    }
+  }, [])
 
   return (
     <div className="graph-workspace">
@@ -1456,7 +1485,7 @@ export function KnowledgeGraphView({
           </div>
         </div>
 
-        <div className="graph-canvas-shell">
+        <div ref={canvasShellRef} className="graph-canvas-shell">
           {visibleNodes.length === 0 ? (
             <div className="empty-state">没有命中节点，可以换个关键词或重置筛选。</div>
           ) : (
