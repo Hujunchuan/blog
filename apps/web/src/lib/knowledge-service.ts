@@ -3,14 +3,21 @@ import {
   getPersistedDocumentBySlug,
   getPersistedExplorerTree,
   getPersistedGraph,
+  getPersistedImpact,
   getPersistedOverview,
   getPersistedRelated,
   isDatabaseConfigured,
   searchPersistedDocuments,
 } from "@repo/db/index"
-import { KnowledgeRelatedResult, KnowledgeSnapshot, KnowledgeSource, ParsedKnowledgeDocument } from "@repo/core/types"
+import {
+  KnowledgeImpactResult,
+  KnowledgeRelatedResult,
+  KnowledgeSnapshot,
+  KnowledgeSource,
+  ParsedKnowledgeDocument,
+} from "@repo/core/types"
 import { MarkdownKnowledgeParser } from "@repo/parser/markdownParser"
-import { buildKnowledgeNervousSystem } from "@repo/sync/nervousSystem"
+import { buildKnowledgeImpact, buildKnowledgeNervousSystem } from "@repo/sync/nervousSystem"
 import { buildKnowledgeSnapshot } from "@repo/sync/syncKnowledgeBase"
 import { getKnowledgeSourcesConfig, getSnapshotTtlMs } from "./config"
 import { MemorySnapshotRepository } from "./memory-snapshot-repository"
@@ -195,6 +202,53 @@ export async function getRelatedKnowledge(
     entities: nervousSystem.entities.filter((entity) => entityKeys.has(entity.entityKey)),
     relations,
   }
+}
+
+export async function getKnowledgeImpact(
+  sourceId: string,
+  input: { entityKey?: string; slug?: string; depth?: number; limit?: number },
+): Promise<KnowledgeImpactResult | null> {
+  const slugCandidates = input.slug ? [...new Set(buildSlugCandidates(input.slug))] : []
+
+  if (input.entityKey) {
+    const persisted = await tryReadPersisted(() =>
+      getPersistedImpact(sourceId, {
+        entityKey: input.entityKey,
+        depth: input.depth,
+        limit: input.limit,
+      }),
+    )
+    if (persisted) {
+      return persisted
+    }
+  }
+
+  for (const candidate of slugCandidates) {
+    const persisted = await tryReadPersisted(() =>
+      getPersistedImpact(sourceId, {
+        slug: candidate,
+        depth: input.depth,
+        limit: input.limit,
+      }),
+    )
+    if (persisted) {
+      return persisted
+    }
+  }
+
+  const nervousSystem = buildKnowledgeNervousSystem((await getSnapshot(sourceId)).documents)
+  const root =
+    nervousSystem.entities.find((entity) => input.entityKey && entity.entityKey === input.entityKey) ??
+    nervousSystem.entities.find((entity) => entity.slug && slugCandidates.includes(entity.slug))
+
+  if (!root) {
+    return null
+  }
+
+  return buildKnowledgeImpact(nervousSystem, root.entityKey, {
+    depth: input.depth,
+    limit: input.limit,
+  })
 }
 
 export async function searchDocuments(sourceId: string, query: string) {

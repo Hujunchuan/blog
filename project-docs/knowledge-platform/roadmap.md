@@ -49,13 +49,14 @@
 - persist 已开始写入 `entities / relations`
 - 第一版抽取来源为 `documents.tags` 与内部 `documents.links`
 - `related` API 已落地，支持数据库优先和快照回退
+- `impact` API 已落地，支持多跳影响分析
 - 现有页面读链路暂不切换
 
 下一步优先级：
 
-1. 补 `impact` 查询 API
-2. 补 `evidence` 查询 API
-3. 在图谱页增加知识节点模式
+1. 补 `evidence` 查询 API
+2. 在图谱页增加知识节点模式
+3. 为 `impact / related` 增加前端入口
 4. 扩展更多实体类型的抽取规则
 
 ## Phase 3

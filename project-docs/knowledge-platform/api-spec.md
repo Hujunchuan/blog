@@ -82,6 +82,31 @@
 - 若数据库不可用或该知识源未持久化，则回退到内存 nervous system 快照
 - 当前第一版主要覆盖 `document` 与 `tag` 两类实体
 
+### `GET /api/source/:sourceId/impact?slug=...`
+
+返回某个节点的多跳影响图。
+
+当前支持：
+
+- `slug`
+- `entityKey`
+- `depth`
+- `limit`
+
+返回：
+
+- `root`
+- `entities`
+- `relations`
+- `summary`
+
+当前实现：
+
+- 优先读 PostgreSQL 中的 `entities / relations`
+- 若数据库不可用或该知识源未持久化，则回退到内存 nervous system 快照
+- 当前是第一版 BFS 影响分析，适合文档与标签节点
+- 多跳深度默认 `2`
+
 ## 管理接口
 
 ### `POST /api/admin/cache?sourceId=...`
@@ -123,7 +148,6 @@
 - `POST /api/admin/sources`
 - `PATCH /api/admin/sources/:sourceId`
 - `GET /api/source/:sourceId/doc/:slug`
-- `GET /api/source/:sourceId/impact`
 - `GET /api/source/:sourceId/evidence`
 
 ## 设计原则

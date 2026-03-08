@@ -1,5 +1,8 @@
 import {
+  ImpactKnowledgeEntity,
+  ImpactKnowledgeRelation,
   KnowledgeEntity,
+  KnowledgeImpactResult,
   KnowledgeRelation,
   KnowledgeNervousSystemSnapshot,
   ParsedKnowledgeDocument,
@@ -112,5 +115,126 @@ export function buildKnowledgeNervousSystem(documents: ParsedKnowledgeDocument[]
   return {
     entities: [...entityMap.values()].sort((a, b) => a.entityKey.localeCompare(b.entityKey, "en")),
     relations: [...relationMap.values()].sort((a, b) => a.relationKey.localeCompare(b.relationKey, "en")),
+  }
+}
+
+export function buildKnowledgeImpact(
+  nervousSystem: KnowledgeNervousSystemSnapshot,
+  rootEntityKey: string,
+  options?: { depth?: number; limit?: number },
+): KnowledgeImpactResult | null {
+  const root = nervousSystem.entities.find((entity) => entity.entityKey === rootEntityKey)
+  if (!root) {
+    return null
+  }
+
+  const maxDepth = Math.max(1, Math.min(options?.depth ?? 2, 6))
+  const maxRelations = Math.max(1, Math.min(options?.limit ?? 40, 200))
+  const adjacency = new Map<
+    string,
+    Array<{
+      relation: KnowledgeRelation
+      nextEntityKey: string
+      direction: ImpactKnowledgeRelation["direction"]
+    }>
+  >()
+
+  for (const relation of nervousSystem.relations) {
+    const outgoingEntries = adjacency.get(relation.fromEntityKey) ?? []
+    outgoingEntries.push({
+      relation,
+      nextEntityKey: relation.toEntityKey,
+      direction: "outgoing",
+    })
+    adjacency.set(relation.fromEntityKey, outgoingEntries)
+
+    const incomingEntries = adjacency.get(relation.toEntityKey) ?? []
+    incomingEntries.push({
+      relation,
+      nextEntityKey: relation.fromEntityKey,
+      direction: "incoming",
+    })
+    adjacency.set(relation.toEntityKey, incomingEntries)
+  }
+
+  const visitedDepth = new Map<string, number>([[root.entityKey, 0]])
+  const impactRelations = new Map<string, ImpactKnowledgeRelation>()
+  const queue: Array<{ entityKey: string; depth: number }> = [{ entityKey: root.entityKey, depth: 0 }]
+
+  while (queue.length > 0 && impactRelations.size < maxRelations) {
+    const current = queue.shift()!
+    if (current.depth >= maxDepth) {
+      continue
+    }
+
+    const entries = [...(adjacency.get(current.entityKey) ?? [])].sort(
+      (a, b) =>
+        (b.relation.weight ?? 1) - (a.relation.weight ?? 1) ||
+        a.relation.relationType.localeCompare(b.relation.relationType, "en") ||
+        a.relation.relationKey.localeCompare(b.relation.relationKey, "en"),
+    )
+
+    for (const entry of entries) {
+      const nextDepth = current.depth + 1
+      const relationKey = `${entry.relation.relationKey}:${entry.direction}:${nextDepth}`
+
+      if (impactRelations.size < maxRelations && !impactRelations.has(relationKey)) {
+        impactRelations.set(relationKey, {
+          ...entry.relation,
+          direction: entry.direction,
+          depth: nextDepth,
+        })
+      }
+
+      const knownDepth = visitedDepth.get(entry.nextEntityKey)
+      if (knownDepth === undefined || nextDepth < knownDepth) {
+        visitedDepth.set(entry.nextEntityKey, nextDepth)
+        if (nextDepth < maxDepth && impactRelations.size < maxRelations) {
+          queue.push({ entityKey: entry.nextEntityKey, depth: nextDepth })
+        }
+      }
+    }
+  }
+
+  const entityMap = new Map(nervousSystem.entities.map((entity) => [entity.entityKey, entity]))
+  const entities: ImpactKnowledgeEntity[] = [...visitedDepth.entries()]
+    .map(([entityKey, depth]) => {
+      const entity = entityMap.get(entityKey)
+      if (!entity) {
+        return undefined
+      }
+
+      return {
+        ...entity,
+        depth,
+      }
+    })
+    .filter((entity): entity is ImpactKnowledgeEntity => Boolean(entity))
+    .sort(
+      (a, b) =>
+        a.depth - b.depth ||
+        a.entityType.localeCompare(b.entityType, "en") ||
+        a.canonicalName.localeCompare(b.canonicalName, "zh-CN"),
+    )
+
+  const relations = [...impactRelations.values()].sort(
+    (a, b) =>
+      a.depth - b.depth ||
+      a.direction.localeCompare(b.direction, "en") ||
+      a.relationType.localeCompare(b.relationType, "en") ||
+      a.relationKey.localeCompare(b.relationKey, "en"),
+  )
+
+  return {
+    root,
+    entities,
+    relations,
+    summary: {
+      maxDepth,
+      entityCount: entities.length,
+      relationCount: relations.length,
+      incomingCount: relations.filter((relation) => relation.direction === "incoming").length,
+      outgoingCount: relations.filter((relation) => relation.direction === "outgoing").length,
+    },
   }
 }

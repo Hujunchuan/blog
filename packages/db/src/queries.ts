@@ -1,4 +1,13 @@
-import { KnowledgeEntity, KnowledgeOverview, KnowledgeRelatedResult, ParsedKnowledgeDocument, RelatedKnowledgeRelation } from "../../core/src"
+import {
+  KnowledgeEntity,
+  KnowledgeImpactResult,
+  KnowledgeNervousSystemSnapshot,
+  KnowledgeOverview,
+  KnowledgeRelatedResult,
+  ParsedKnowledgeDocument,
+  RelatedKnowledgeRelation,
+} from "../../core/src"
+import { buildKnowledgeImpact } from "../../sync/src/nervousSystem"
 import { createGraph, createTree } from "../../sync/src/projections"
 import { withPgClient } from "./client"
 
@@ -93,6 +102,19 @@ function mapRelationRow(row: RelationRow, sourceId: string): RelatedKnowledgeRel
   }
 }
 
+function mapKnowledgeRelationRow(row: RelationRow, sourceId: string) {
+  return {
+    sourceId,
+    relationKey: row.relation_key,
+    relationType: row.relation_type,
+    fromEntityKey: row.from_entity_key,
+    toEntityKey: row.to_entity_key,
+    evidenceDocumentSlug: row.evidence_document_slug ?? undefined,
+    weight: row.weight,
+    metadata: asRecord(row.metadata),
+  }
+}
+
 async function hasPersistedSource(sourceId: string) {
   return withPgClient(async (client) => {
     const result = await client.query<{ exists: boolean }>(
@@ -129,6 +151,36 @@ async function listPersistedDocuments(sourceId: string): Promise<ParsedKnowledge
     )
 
     return result.rows.map((row) => mapDocumentRow(row, sourceId))
+  })
+}
+
+async function listPersistedNervousSystem(sourceId: string): Promise<KnowledgeNervousSystemSnapshot> {
+  return withPgClient(async (client) => {
+    const [entitiesResult, relationsResult] = await Promise.all([
+      client.query<EntityRow>(
+        `
+          SELECT entity_key, entity_type, canonical_name, slug, document_slug, metadata
+          FROM entities
+          WHERE source_id = $1
+          ORDER BY entity_type ASC, canonical_name ASC, entity_key ASC
+        `,
+        [sourceId],
+      ),
+      client.query<RelationRow>(
+        `
+          SELECT relation_key, relation_type, from_entity_key, to_entity_key, evidence_document_slug, weight, metadata
+          FROM relations
+          WHERE source_id = $1
+          ORDER BY relation_type ASC, relation_key ASC
+        `,
+        [sourceId],
+      ),
+    ])
+
+    return {
+      entities: entitiesResult.rows.map((row) => mapEntityRow(row, sourceId)),
+      relations: relationsResult.rows.map((row) => mapKnowledgeRelationRow(row, sourceId)),
+    }
   })
 }
 
@@ -426,5 +478,28 @@ export async function getPersistedRelated(
       entities: entitiesResult.rows.map((row) => mapEntityRow(row, sourceId)),
       relations,
     }
+  })
+}
+
+export async function getPersistedImpact(
+  sourceId: string,
+  input: { entityKey?: string; slug?: string; depth?: number; limit?: number },
+): Promise<KnowledgeImpactResult | null> {
+  if (!(await hasPersistedSource(sourceId))) {
+    return null
+  }
+
+  const nervousSystem = await listPersistedNervousSystem(sourceId)
+  const root =
+    nervousSystem.entities.find((entity) => input.entityKey && entity.entityKey === input.entityKey) ??
+    nervousSystem.entities.find((entity) => input.slug && entity.slug === input.slug)
+
+  if (!root) {
+    return null
+  }
+
+  return buildKnowledgeImpact(nervousSystem, root.entityKey, {
+    depth: input.depth,
+    limit: input.limit,
   })
 }

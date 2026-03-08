@@ -91,6 +91,28 @@ export interface KnowledgeRelatedResult {
   relations: RelatedKnowledgeRelation[]
 }
 
+export interface ImpactKnowledgeEntity extends KnowledgeEntity {
+  depth: number
+}
+
+export interface ImpactKnowledgeRelation extends KnowledgeRelation {
+  direction: "incoming" | "outgoing"
+  depth: number
+}
+
+export interface KnowledgeImpactResult {
+  root: KnowledgeEntity
+  entities: ImpactKnowledgeEntity[]
+  relations: ImpactKnowledgeRelation[]
+  summary: {
+    maxDepth: number
+    entityCount: number
+    relationCount: number
+    incomingCount: number
+    outgoingCount: number
+  }
+}
+
 export interface ExplorerNode {
   id: string
   name: string
