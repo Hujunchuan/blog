@@ -39,6 +39,7 @@ const relationLabels: Record<KnowledgeRelationType, string> = {
 
 type GraphScope = "all" | "local"
 type LocalDepth = 1 | 2
+type CollapseMode = "none" | "leaf" | "low-signal"
 type NodePosition = { x: number; y: number }
 type DragState = {
   nodeId: string
@@ -199,6 +200,44 @@ function buildMatchedNodeIds(nodes: KnowledgeGraphNode[], query: string, focus?:
   return matched
 }
 
+function buildDegreeMap(edges: KnowledgeGraphEdge[]) {
+  const degreeMap = new Map<string, number>()
+
+  for (const edge of edges) {
+    degreeMap.set(edge.source, (degreeMap.get(edge.source) ?? 0) + 1)
+    degreeMap.set(edge.target, (degreeMap.get(edge.target) ?? 0) + 1)
+  }
+
+  return degreeMap
+}
+
+function buildDepthMap(anchorId: string | undefined, adjacency: Map<string, Set<string>>, maxDepth: number) {
+  const depthMap = new Map<string, number>()
+
+  if (!anchorId) {
+    return depthMap
+  }
+
+  depthMap.set(anchorId, 0)
+  const queue: Array<{ id: string; depth: number }> = [{ id: anchorId, depth: 0 }]
+
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    if (current.depth >= maxDepth) {
+      continue
+    }
+
+    for (const nextId of adjacency.get(current.id) ?? []) {
+      if (!depthMap.has(nextId)) {
+        depthMap.set(nextId, current.depth + 1)
+        queue.push({ id: nextId, depth: current.depth + 1 })
+      }
+    }
+  }
+
+  return depthMap
+}
+
 function buildVisibleNodeIds(
   nodes: KnowledgeGraphNode[],
   edges: KnowledgeGraphEdge[],
@@ -251,7 +290,7 @@ function buildVisibleNodeIds(
   return new Set(scopedNodes.map((node) => node.id))
 }
 
-function layoutNodes(nodes: KnowledgeGraphNode[]) {
+function layoutGlobalNodes(nodes: KnowledgeGraphNode[]) {
   const width = 1040
   const height = 620
   const grouped = new Map<string, KnowledgeGraphNode[]>()
@@ -317,6 +356,90 @@ function layoutNodes(nodes: KnowledgeGraphNode[]) {
   }
 }
 
+function layoutLocalNodes(nodes: KnowledgeGraphNode[], edges: KnowledgeGraphEdge[], anchorId: string) {
+  const width = 1040
+  const height = 620
+  const centerX = width / 2
+  const centerY = height / 2
+  const visibleIds = new Set(nodes.map((node) => node.id))
+  const adjacency = buildAdjacency(edges, visibleIds)
+  const depthMap = buildDepthMap(anchorId, adjacency, 3)
+  const groupedByDepth = new Map<number, Map<string, KnowledgeGraphNode[]>>()
+
+  for (const node of nodes) {
+    const depth = depthMap.get(node.id) ?? 3
+    const byGroup = groupedByDepth.get(depth) ?? new Map<string, KnowledgeGraphNode[]>()
+    const bucket = byGroup.get(node.group) ?? []
+    bucket.push(node)
+    byGroup.set(node.group, bucket)
+    groupedByDepth.set(depth, byGroup)
+  }
+
+  const positioned: PositionedNode[] = []
+  const anchorNode = nodes.find((node) => node.id === anchorId)
+  if (anchorNode) {
+    positioned.push({
+      ...anchorNode,
+      x: centerX,
+      y: centerY,
+      radius: 16 + Math.min(anchorNode.weight, 12) * 0.9,
+      color: colorForGroup(anchorNode.group),
+    })
+  }
+
+  for (const depth of [1, 2, 3]) {
+    const groups = groupedByDepth.get(depth)
+    if (!groups) {
+      continue
+    }
+
+    const groupEntries = [...groups.entries()]
+      .map(([group, groupNodes]) => [
+        group,
+        [...groupNodes].sort((a, b) => b.weight - a.weight || a.label.localeCompare(b.label, "zh-CN")),
+      ] as const)
+      .sort((a, b) => a[0].localeCompare(b[0], "zh-CN"))
+
+    const baseRadius = depth === 1 ? 150 : depth === 2 ? 270 : 370
+    groupEntries.forEach(([group, groupNodes], groupIndex) => {
+      const groupAngle = (Math.PI * 2 * groupIndex) / Math.max(groupEntries.length, 1) - Math.PI / 2
+      const groupCenterX = centerX + Math.cos(groupAngle) * baseRadius
+      const groupCenterY = centerY + Math.sin(groupAngle) * baseRadius * 0.68
+
+      groupNodes.forEach((node, nodeIndex) => {
+        const nodeAngle = (Math.PI * 2 * nodeIndex) / Math.max(groupNodes.length, 1) + groupAngle * 0.25
+        const nodeRadius = nodeIndex === 0 ? 0 : 22 + Math.floor((nodeIndex - 1) / 6) * 22
+        positioned.push({
+          ...node,
+          x: groupCenterX + Math.cos(nodeAngle) * nodeRadius,
+          y: groupCenterY + Math.sin(nodeAngle) * nodeRadius,
+          radius: (depth === 1 ? 12 : 9) + Math.min(node.weight, 10) * (depth === 1 ? 0.65 : 0.5),
+          color: colorForGroup(group),
+        })
+      })
+    })
+  }
+
+  return {
+    width,
+    height,
+    nodes: positioned,
+  }
+}
+
+function layoutNodes(
+  nodes: KnowledgeGraphNode[],
+  edges: KnowledgeGraphEdge[],
+  scope: GraphScope,
+  anchorId?: string,
+) {
+  if (scope === "local" && anchorId) {
+    return layoutLocalNodes(nodes, edges, anchorId)
+  }
+
+  return layoutGlobalNodes(nodes)
+}
+
 function clampPosition(layoutWidth: number, layoutHeight: number, position: NodePosition) {
   return {
     x: Math.min(layoutWidth - 24, Math.max(24, position.x)),
@@ -353,6 +476,7 @@ export function KnowledgeGraphView({
   const [query, setQuery] = useState("")
   const [scope, setScope] = useState<GraphScope>("all")
   const [localDepth, setLocalDepth] = useState<LocalDepth>(1)
+  const [collapseMode, setCollapseMode] = useState<CollapseMode>("none")
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(initialFocus)
   const [activeGroups, setActiveGroups] = useState<string[]>(allGroups)
   const [activeRelationTypes, setActiveRelationTypes] = useState<string[]>(allRelationTypes)
@@ -369,7 +493,7 @@ export function KnowledgeGraphView({
           edgeRelationTypes(edge).some((relationType) => activeRelationTypeSet.has(relationType)),
         )
 
-  const visibleIds =
+  const baseVisibleIds =
     activeRelationTypes.length === 0
       ? new Set<string>()
       : buildVisibleNodeIds(
@@ -383,19 +507,44 @@ export function KnowledgeGraphView({
           selectedNodeId,
         )
 
-  const visibleNodes = graph.nodes.filter((node) => visibleIds.has(node.id))
+  const baseVisibleNodes = graph.nodes.filter((node) => baseVisibleIds.has(node.id))
+  const baseVisibleNodeIdSet = new Set(baseVisibleNodes.map((node) => node.id))
+  const baseVisibleEdges = relationScopedEdges.filter(
+    (edge) => baseVisibleNodeIdSet.has(edge.source) && baseVisibleNodeIdSet.has(edge.target),
+  )
+  const baseDegreeMap = buildDegreeMap(baseVisibleEdges)
+  const protectedNodeIds = new Set(
+    [selectedNodeId, initialFocus, ...pinnedNodeIds].filter((nodeId): nodeId is string => Boolean(nodeId)),
+  )
+  const collapsedNodeIds = new Set(
+    baseVisibleNodes
+      .filter((node) => {
+        if (collapseMode === "none" || protectedNodeIds.has(node.id)) {
+          return false
+        }
+
+        const degree = baseDegreeMap.get(node.id) ?? 0
+        if (collapseMode === "leaf") {
+          return degree <= 1
+        }
+
+        return degree <= 2 && node.weight <= 3
+      })
+      .map((node) => node.id),
+  )
+  const visibleNodes = baseVisibleNodes.filter((node) => !collapsedNodeIds.has(node.id))
   const visibleNodeIdSet = new Set(visibleNodes.map((node) => node.id))
-  const visibleEdges = relationScopedEdges.filter(
+  const visibleEdges = baseVisibleEdges.filter(
     (edge) => visibleNodeIdSet.has(edge.source) && visibleNodeIdSet.has(edge.target),
   )
-  const degreeMap = new Map<string, number>()
+  const degreeMap = buildDegreeMap(visibleEdges)
 
-  for (const edge of visibleEdges) {
-    degreeMap.set(edge.source, (degreeMap.get(edge.source) ?? 0) + 1)
-    degreeMap.set(edge.target, (degreeMap.get(edge.target) ?? 0) + 1)
-  }
-
-  const baseLayout = layoutNodes(visibleNodes)
+  const selectedNode =
+    visibleNodes.find((node) => node.id === selectedNodeId) ??
+    visibleNodes.find((node) => node.id === initialFocus) ??
+    visibleNodes[0]
+  const selectedAnchorId = selectedNode?.id ?? initialFocus
+  const baseLayout = layoutNodes(visibleNodes, visibleEdges, scope, selectedAnchorId)
   const layoutNodesWithOverrides = baseLayout.nodes.map((node) => {
     const override = nodeOverrides[node.id]
     return override
@@ -412,10 +561,6 @@ export function KnowledgeGraphView({
       .map((node) => [node.slug as string, node.label]),
   )
 
-  const selectedNode =
-    visibleNodes.find((node) => node.id === selectedNodeId) ??
-    visibleNodes.find((node) => node.id === initialFocus) ??
-    visibleNodes[0]
   const selectedNodeHref = selectedNode ? graphNodeHref(sourceId, mode, selectedNode) : undefined
   const selectedPosition = selectedNode ? positionedMap.get(selectedNode.id) : undefined
   const selectedNodePinned = selectedNode ? pinnedNodeIds.includes(selectedNode.id) : false
@@ -544,6 +689,7 @@ export function KnowledgeGraphView({
             <span className="badge">{`分组 ${new Set(visibleNodes.map((node) => node.group)).size}`}</span>
             <span className="badge">{`关系类型 ${visibleRelationTypes.length}`}</span>
             <span className="badge">{`固定节点 ${pinnedNodeIds.length}`}</span>
+            <span className="badge">{`已折叠 ${collapsedNodeIds.size}`}</span>
           </div>
         </div>
 
@@ -638,6 +784,36 @@ export function KnowledgeGraphView({
           </div>
 
           <div className="graph-control-group">
+            <span className="graph-control-label">折叠模式</span>
+            <div className="graph-pill-row">
+              <button
+                type="button"
+                className="graph-pill"
+                data-active={collapseMode === "none"}
+                onClick={() => setCollapseMode("none")}
+              >
+                不折叠
+              </button>
+              <button
+                type="button"
+                className="graph-pill"
+                data-active={collapseMode === "leaf"}
+                onClick={() => setCollapseMode("leaf")}
+              >
+                折叠叶子
+              </button>
+              <button
+                type="button"
+                className="graph-pill"
+                data-active={collapseMode === "low-signal"}
+                onClick={() => setCollapseMode("low-signal")}
+              >
+                折叠弱节点
+              </button>
+            </div>
+          </div>
+
+          <div className="graph-control-group">
             <span className="graph-control-label">布局工具</span>
             <div className="graph-pill-row">
               <button type="button" className="graph-pill" data-active="false" onClick={resetLayout}>
@@ -661,6 +837,20 @@ export function KnowledgeGraphView({
                   }}
                 >
                   {selectedNodePinned ? "取消固定" : "固定节点"}
+                </button>
+              )}
+              {selectedNode && (
+                <button
+                  type="button"
+                  className="graph-pill"
+                  data-active={scope === "local" && localDepth === 2}
+                  onClick={() => {
+                    setScope("local")
+                    setLocalDepth(2)
+                    setSelectedNodeId(selectedNode.id)
+                  }}
+                >
+                  展开当前节点
                 </button>
               )}
             </div>
