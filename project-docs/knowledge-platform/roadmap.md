@@ -39,6 +39,7 @@ Next:
 
 - `entities` and `relations` persistence
 - extraction from tags and internal links
+- typed extraction from tags, titles, paths, and transcript speakers
 - `related`, `impact`, and `evidence` APIs
 - integrated knowledge analysis page
 - dual-mode graph page with local exploration
@@ -48,10 +49,11 @@ Status:
 - `/source/[sourceId]/knowledge` is live
 - `/source/[sourceId]/graph` supports `documents` and `knowledge` modes
 - graph view now supports group filters, local neighborhood scope, and focused node exploration
+- person extraction has been tightened to reduce noisy topical nodes from tags and transcript headings
 
 Next:
 
-1. expand extraction rules for `concept`, `person`, and `project`
+1. improve extraction precision for `concept` and `project`
 2. add richer relation-aware graph interactions
 3. add more pivots around evidence and entity types
 

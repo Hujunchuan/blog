@@ -138,6 +138,8 @@ Prepare future tool interfaces such as:
 - nervous-system schema is in place
 - `entities / relations` persistence is in place
 - first extraction rules are in place
+- typed extraction now derives `concept`, `person`, and `project` from tags, titles, paths, and transcript speakers
+- person extraction now uses stricter tag rules and separate speaker rules to suppress generic topical labels
 - `related`, `impact`, and `evidence` APIs are in place
 - `/source/[sourceId]/knowledge` is the first integrated analysis screen
 - source and document pages now link into this workflow
@@ -145,7 +147,7 @@ Prepare future tool interfaces such as:
 
 ## Next Priorities
 
-1. Expand extraction rules for `concept`, `person`, and `project`.
+1. Improve precision for `concept` and `project` extraction.
 2. Add richer graph interactions and better local exploration around focused nodes.
 3. Add more frontend pivots around entity types and evidence links.
 4. Keep the nervous-system layer compatible with future GitHub and remote-server connectors.

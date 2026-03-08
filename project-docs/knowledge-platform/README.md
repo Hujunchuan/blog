@@ -13,6 +13,7 @@ This document set describes the migration path from the original Quartz-based st
 - `npm run watch:sources` can watch local sources and trigger automatic persistence.
 - The first nervous-system analysis screen is available at `/source/[sourceId]/knowledge`.
 - The graph page now supports both document mode and knowledge mode at `/source/[sourceId]/graph`.
+- The nervous-system extractor now derives `person`, `project`, and `concept` entities from tags, titles, paths, and speaker lines.
 
 ## Document List
 
@@ -50,10 +51,12 @@ This document set describes the migration path from the original Quartz-based st
 - Added document-page entry links and tag pivots into the same workflow.
 - Combined `related`, `impact`, and `evidence` data into one screen.
 - Added `/source/[sourceId]/graph` with `documents` and `knowledge` modes.
+- Expanded typed extraction for `concept`, `person`, and `project`.
+- Tightened `person` extraction so transcript speakers and tags are evaluated with different heuristics, reducing noisy topical nodes in the knowledge graph.
 
 ## Next Focus
 
-1. Expand entity extraction beyond tags and document links.
-2. Add richer graph interactions on top of the new dual-mode graph page.
+1. Improve precision for `concept` and `project` extraction on top of the new person rules.
+2. Add richer relation-aware graph interactions on top of the new extraction layer.
 3. Add GitHub connector as the first remote source connector.
 4. Move watcher-driven sync from full refresh toward incremental sync.
