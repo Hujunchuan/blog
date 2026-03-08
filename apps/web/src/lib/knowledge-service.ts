@@ -418,7 +418,15 @@ export function tagEntityKey(tag: string) {
 
 export function knowledgeAnalysisUrl(
   sourceId: string,
-  input: { slug?: string; entityKey?: string; depth?: number; limit?: number },
+  input: {
+    slug?: string
+    entityKey?: string
+    depth?: number
+    limit?: number
+    relationType?: string
+    direction?: string
+    entityType?: string
+  },
 ) {
   const params = new URLSearchParams()
   if (input.slug) {
@@ -432,6 +440,15 @@ export function knowledgeAnalysisUrl(
   }
   if (typeof input.limit === "number") {
     params.set("limit", String(input.limit))
+  }
+  if (input.relationType) {
+    params.set("relationType", input.relationType)
+  }
+  if (input.direction) {
+    params.set("direction", input.direction)
+  }
+  if (input.entityType) {
+    params.set("entityType", input.entityType)
   }
 
   const query = params.toString()

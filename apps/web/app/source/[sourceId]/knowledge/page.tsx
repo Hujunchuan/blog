@@ -24,6 +24,52 @@ function parseNumber(value: string | undefined, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
+function buildCountSummary(values: string[]) {
+  const counts = new Map<string, number>()
+  for (const value of values) {
+    counts.set(value, (counts.get(value) ?? 0) + 1)
+  }
+
+  return [...counts.entries()]
+    .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key, "zh-CN"))
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values)]
+}
+
+function mergeAnalysisInput(
+  base: {
+    slug?: string
+    entityKey?: string
+    depth?: number
+    limit?: number
+    relationType?: string
+    direction?: string
+    entityType?: string
+  },
+  overrides: Partial<{
+    slug?: string
+    entityKey?: string
+    depth?: number
+    limit?: number
+    relationType?: string
+    direction?: string
+    entityType?: string
+  }>,
+) {
+  return {
+    slug: "slug" in overrides ? overrides.slug : base.slug,
+    entityKey: "entityKey" in overrides ? overrides.entityKey : base.entityKey,
+    depth: "depth" in overrides ? overrides.depth : base.depth,
+    limit: "limit" in overrides ? overrides.limit : base.limit,
+    relationType: "relationType" in overrides ? overrides.relationType : base.relationType,
+    direction: "direction" in overrides ? overrides.direction : base.direction,
+    entityType: "entityType" in overrides ? overrides.entityType : base.entityType,
+  }
+}
+
 const entityTypeLabels: Record<string, string> = {
   document: "\u6587\u6863",
   tag: "\u6807\u7B7E",
@@ -78,6 +124,9 @@ export default async function KnowledgePage({
     entityKey?: string | string[]
     depth?: string | string[]
     limit?: string | string[]
+    relationType?: string | string[]
+    direction?: string | string[]
+    entityType?: string | string[]
   }>
 }) {
   const { sourceId } = await params
@@ -86,6 +135,9 @@ export default async function KnowledgePage({
   const entityKey = firstValue(resolvedSearchParams.entityKey)
   const depth = parseNumber(firstValue(resolvedSearchParams.depth), 2)
   const limit = parseNumber(firstValue(resolvedSearchParams.limit), 12)
+  const relationType = firstValue(resolvedSearchParams.relationType)
+  const direction = firstValue(resolvedSearchParams.direction)
+  const entityType = firstValue(resolvedSearchParams.entityType)
 
   let source: Awaited<ReturnType<typeof getSource>>
   try {
@@ -108,6 +160,62 @@ export default async function KnowledgePage({
   const root = related?.root ?? impact?.root ?? evidence?.root ?? null
   const mergedEntities = uniqueByEntityKey([...(related?.entities ?? []), ...(impact?.entities ?? []), ...(root ? [root] : [])])
   const entityLabelMap = buildEntityLabelMap(mergedEntities)
+  const analysisInput = {
+    slug,
+    entityKey,
+    depth,
+    limit,
+    relationType,
+    direction,
+    entityType,
+  }
+  const filteredRelatedRelations = (related?.relations ?? []).filter((relation) => {
+    if (relationType && relation.relationType !== relationType) {
+      return false
+    }
+    if (direction && relation.direction !== direction) {
+      return false
+    }
+    return true
+  })
+  const filteredImpactEntities = (impact?.entities ?? []).filter((entity) => {
+    if (entity.entityKey === root?.entityKey) {
+      return false
+    }
+    if (entityType && entity.entityType !== entityType) {
+      return false
+    }
+    return true
+  })
+  const evidenceRelationMap = new Map(
+    uniqueStrings([...(related?.relations ?? []), ...(evidence?.relations ?? [])].map((relation) => relation.relationKey)).map(
+      (relationKey) => {
+        const relation =
+          [...(related?.relations ?? []), ...(evidence?.relations ?? [])].find((item) => item.relationKey === relationKey)!
+        return [relationKey, relation] as const
+      },
+    ),
+  )
+  const filteredEvidenceDocuments = (evidence?.documents ?? []).filter((document) =>
+    document.relationKeys.some((relationKey) => {
+      const relation = evidenceRelationMap.get(relationKey)
+      if (!relation) {
+        return !relationType && !direction
+      }
+      if (relationType && relation.relationType !== relationType) {
+        return false
+      }
+      if (direction && relation.direction !== direction) {
+        return false
+      }
+      return true
+    }),
+  )
+  const relationTypeSummary = buildCountSummary((related?.relations ?? []).map((relation) => relation.relationType))
+  const directionSummary = buildCountSummary((related?.relations ?? []).map((relation) => relation.direction))
+  const impactTypeSummary = buildCountSummary(
+    (impact?.entities ?? []).filter((entity) => entity.entityKey !== root?.entityKey).map((entity) => entity.entityType),
+  )
 
   return (
     <div className="page-stack">
@@ -240,16 +348,142 @@ export default async function KnowledgePage({
                 {"\u5728\u56FE\u8C31\u4E2D\u67E5\u770B"}
               </Link>
             </div>
+            {(relationType || direction || entityType) && (
+              <div className="badge-row">
+                {relationType && (
+                  <span className="badge">{`${"\u5173\u7CFB"}: ${relationTypeLabels[relationType] ?? relationType}`}</span>
+                )}
+                {direction && (
+                  <span className="badge">{`${"\u65B9\u5411"}: ${directionLabels[direction] ?? direction}`}</span>
+                )}
+                {entityType && (
+                  <span className="badge">{`${"\u5B9E\u4F53"}: ${entityTypeLabels[entityType] ?? entityType}`}</span>
+                )}
+                <Link
+                  href={knowledgeAnalysisUrl(
+                    sourceId,
+                    mergeAnalysisInput(analysisInput, {
+                      relationType: undefined,
+                      direction: undefined,
+                      entityType: undefined,
+                    }),
+                  )}
+                  className="ghost-link"
+                  prefetch={false}
+                >
+                  {"\u6E05\u9664\u7B5B\u9009"}
+                </Link>
+              </div>
+            )}
           </section>
 
           <StatGrid
             items={[
-              { label: "\u76F8\u5173\u5173\u7CFB", value: related?.relations.length ?? 0 },
-              { label: "\u5F71\u54CD\u8282\u70B9", value: impact?.summary.entityCount ?? 0 },
-              { label: "\u8BC1\u636E\u6587\u6863", value: evidence?.summary.evidenceDocumentCount ?? 0 },
+              { label: "\u76F8\u5173\u5173\u7CFB", value: filteredRelatedRelations.length },
+              { label: "\u5F71\u54CD\u8282\u70B9", value: filteredImpactEntities.length },
+              { label: "\u8BC1\u636E\u6587\u6863", value: filteredEvidenceDocuments.length },
               { label: "\u5F71\u54CD\u6DF1\u5EA6", value: impact?.summary.maxDepth ?? depth },
             ]}
           />
+
+          <section className="panel">
+            <div className="panel-header">
+              <div>
+                <h2>{"\u5206\u6790\u89C6\u89D2"}</h2>
+                <p>{"\u5728\u4E0D\u79BB\u5F00\u5F53\u524D\u8282\u70B9\u7684\u60C5\u51B5\u4E0B\uFF0C\u6309\u5173\u7CFB\u7C7B\u578B\u3001\u65B9\u5411\u548C\u5F71\u54CD\u5B9E\u4F53\u7C7B\u578B\u5207\u7247\u3002"}</p>
+              </div>
+            </div>
+            <div className="page-stack">
+              <div>
+                <h3>{"\u5173\u7CFB\u7C7B\u578B"}</h3>
+                <div className="tag-row">
+                  <Link
+                    href={knowledgeAnalysisUrl(sourceId, mergeAnalysisInput(analysisInput, { relationType: undefined }))}
+                    className="tag-chip"
+                    data-active={!relationType}
+                    prefetch={false}
+                  >
+                    {"\u5168\u90E8\u5173\u7CFB"}
+                  </Link>
+                  {relationTypeSummary.map((item) => (
+                    <Link
+                      key={item.key}
+                      href={knowledgeAnalysisUrl(sourceId, mergeAnalysisInput(analysisInput, { relationType: item.key }))}
+                      className="tag-chip"
+                      data-active={relationType === item.key}
+                      prefetch={false}
+                    >
+                      {`${relationTypeLabels[item.key] ?? item.key} · ${item.count}`}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <h3>{"\u5173\u7CFB\u65B9\u5411"}</h3>
+                <div className="tag-row">
+                  <Link
+                    href={knowledgeAnalysisUrl(sourceId, mergeAnalysisInput(analysisInput, { direction: undefined }))}
+                    className="tag-chip"
+                    data-active={!direction}
+                    prefetch={false}
+                  >
+                    {"\u5168\u90E8\u65B9\u5411"}
+                  </Link>
+                  {directionSummary.map((item) => (
+                    <Link
+                      key={item.key}
+                      href={knowledgeAnalysisUrl(sourceId, mergeAnalysisInput(analysisInput, { direction: item.key }))}
+                      className="tag-chip"
+                      data-active={direction === item.key}
+                      prefetch={false}
+                    >
+                      {`${directionLabels[item.key] ?? item.key} · ${item.count}`}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <h3>{"\u5F71\u54CD\u5B9E\u4F53\u7C7B\u578B"}</h3>
+                <div className="tag-row">
+                  <Link
+                    href={knowledgeAnalysisUrl(sourceId, mergeAnalysisInput(analysisInput, { entityType: undefined }))}
+                    className="tag-chip"
+                    data-active={!entityType}
+                    prefetch={false}
+                  >
+                    {"\u5168\u90E8\u7C7B\u578B"}
+                  </Link>
+                  {impactTypeSummary.map((item) => (
+                    <Link
+                      key={item.key}
+                      href={knowledgeAnalysisUrl(sourceId, mergeAnalysisInput(analysisInput, { entityType: item.key }))}
+                      className="tag-chip"
+                      data-active={entityType === item.key}
+                      prefetch={false}
+                    >
+                      {`${entityTypeLabels[item.key] ?? item.key} · ${item.count}`}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+              <div className="action-row">
+                <Link
+                  href={knowledgeAnalysisUrl(
+                    sourceId,
+                    mergeAnalysisInput(analysisInput, {
+                      relationType: undefined,
+                      direction: undefined,
+                      entityType: undefined,
+                    }),
+                  )}
+                  className="ghost-link"
+                  prefetch={false}
+                >
+                  {"\u6E05\u9664\u7B5B\u9009"}
+                </Link>
+              </div>
+            </div>
+          </section>
 
           <div className="analysis-grid">
             <section className="panel">
@@ -260,7 +494,7 @@ export default async function KnowledgePage({
                 </div>
               </div>
               <div className="result-list">
-                {(related?.relations ?? []).map((relation) => {
+                {filteredRelatedRelations.map((relation) => {
                   const peerKey =
                     relation.fromEntityKey === root.entityKey ? relation.toEntityKey : relation.fromEntityKey
                   const peerLabel = entityLabelMap.get(peerKey) ?? peerKey
@@ -276,6 +510,26 @@ export default async function KnowledgePage({
                       {relation.evidenceDocumentSlug && (
                         <div className="action-row">
                           <Link
+                            href={knowledgeAnalysisUrl(
+                              sourceId,
+                              mergeAnalysisInput(analysisInput, {
+                                relationType: relation.relationType,
+                                direction: relation.direction,
+                              }),
+                            )}
+                            className="ghost-link"
+                            prefetch={false}
+                          >
+                            {"\u53EA\u770B\u6B64\u7C7B\u5173\u7CFB"}
+                          </Link>
+                          <Link
+                            href={knowledgeAnalysisUrl(sourceId, { slug: relation.evidenceDocumentSlug, depth, limit })}
+                            className="ghost-link"
+                            prefetch={false}
+                          >
+                            {"\u5206\u6790\u8BE5\u8BC1\u636E"}
+                          </Link>
+                          <Link
                             href={documentUrl(sourceId, { slug: relation.evidenceDocumentSlug })}
                             className="ghost-link"
                             prefetch={false}
@@ -287,7 +541,7 @@ export default async function KnowledgePage({
                     </article>
                   )
                 })}
-                {(related?.relations.length ?? 0) === 0 && (
+                {filteredRelatedRelations.length === 0 && (
                   <div className="empty-state">{"\u5F53\u524D\u8282\u70B9\u8FD8\u6CA1\u6709\u4E00\u8DF3\u5173\u7CFB\u3002"}</div>
                 )}
               </div>
@@ -301,12 +555,14 @@ export default async function KnowledgePage({
                 </div>
               </div>
               <div className="result-list">
-                {(impact?.entities ?? [])
-                  .filter((entity) => entity.entityKey !== root.entityKey)
-                  .map((entity) => (
+                {filteredImpactEntities.map((entity) => (
                     <article key={entity.entityKey} className="result-card">
                       <h3>{entity.canonicalName}</h3>
                       <p>{`${"\u6DF1\u5EA6"} ${entity.depth} | ${entityTypeLabels[entity.entityType] ?? entity.entityType}`}</p>
+                      <div className="badge-row">
+                        <span className="badge">{`${"\u7C7B\u578B"} ${entityTypeLabels[entity.entityType] ?? entity.entityType}`}</span>
+                        <span className="badge">{`${"\u6DF1\u5EA6"} ${entity.depth}`}</span>
+                      </div>
                       <div className="action-row">
                         <Link
                           href={knowledgeAnalysisUrl(sourceId, {
@@ -324,10 +580,20 @@ export default async function KnowledgePage({
                             {"\u6253\u5F00\u6587\u6863"}
                           </Link>
                         )}
+                        <Link
+                          href={knowledgeAnalysisUrl(
+                            sourceId,
+                            mergeAnalysisInput(analysisInput, { entityType: entity.entityType }),
+                          )}
+                          className="ghost-link"
+                          prefetch={false}
+                        >
+                          {"\u53EA\u770B\u8FD9\u7C7B\u8282\u70B9"}
+                        </Link>
                       </div>
                     </article>
                   ))}
-                {(impact?.entities.length ?? 0) <= 1 && (
+                {filteredImpactEntities.length === 0 && (
                   <div className="empty-state">{"\u5F53\u524D\u8282\u70B9\u7684\u5F71\u54CD\u8303\u56F4\u8FD8\u6BD4\u8F83\u5C0F\u3002"}</div>
                 )}
               </div>
@@ -342,33 +608,57 @@ export default async function KnowledgePage({
               </div>
             </div>
             <div className="result-list">
-              {(evidence?.documents ?? []).map((document) => (
-                <article key={document.slug} className="result-card">
-                  <h3>
-                    <Link href={documentUrl(sourceId, document)} prefetch={false}>
-                      {document.title}
-                    </Link>
-                  </h3>
-                  <p>{document.summary}</p>
-                  <small>{new Date(document.updatedAt).toLocaleString("zh-CN")}</small>
-                  <div className="badge-row">
-                    <span className="badge">{`\u5173\u8054\u5173\u7CFB ${document.relationKeys.length}`}</span>
-                  </div>
-                  <div className="action-row">
-                    <Link href={documentUrl(sourceId, document)} className="ghost-link" prefetch={false}>
-                      {"\u67E5\u770B\u6587\u6863"}
-                    </Link>
-                    <Link
-                      href={knowledgeAnalysisUrl(sourceId, { slug: document.slug, depth, limit })}
-                      className="ghost-link"
-                      prefetch={false}
-                    >
-                      {"\u5206\u6790\u6B64\u8BC1\u636E"}
-                    </Link>
-                  </div>
-                </article>
-              ))}
-              {(evidence?.documents.length ?? 0) === 0 && (
+              {filteredEvidenceDocuments.map((document) => {
+                const documentRelations = document.relationKeys
+                  .map((relationKey) => evidenceRelationMap.get(relationKey))
+                  .filter((relation): relation is NonNullable<typeof relation> => Boolean(relation))
+                const documentRelationTypes = uniqueStrings(documentRelations.map((relation) => relation.relationType))
+
+                return (
+                  <article key={document.slug} className="result-card">
+                    <h3>
+                      <Link href={documentUrl(sourceId, document)} prefetch={false}>
+                        {document.title}
+                      </Link>
+                    </h3>
+                    <p>{document.summary}</p>
+                    <small>{new Date(document.updatedAt).toLocaleString("zh-CN")}</small>
+                    <div className="badge-row">
+                      <span className="badge">{`\u5173\u8054\u5173\u7CFB ${document.relationKeys.length}`}</span>
+                      {documentRelationTypes.map((item) => (
+                        <span key={`${document.slug}-${item}`} className="badge">
+                          {relationTypeLabels[item] ?? item}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="action-row">
+                      <Link href={documentUrl(sourceId, document)} className="ghost-link" prefetch={false}>
+                        {"\u67E5\u770B\u6587\u6863"}
+                      </Link>
+                      <Link
+                        href={knowledgeAnalysisUrl(sourceId, { slug: document.slug, depth, limit })}
+                        className="ghost-link"
+                        prefetch={false}
+                      >
+                        {"\u5206\u6790\u6B64\u8BC1\u636E"}
+                      </Link>
+                      {documentRelationTypes[0] && (
+                        <Link
+                          href={knowledgeAnalysisUrl(
+                            sourceId,
+                            mergeAnalysisInput(analysisInput, { relationType: documentRelationTypes[0] }),
+                          )}
+                          className="ghost-link"
+                          prefetch={false}
+                        >
+                          {"\u53EA\u770B\u8BE5\u8BC1\u636E\u5173\u7CFB"}
+                        </Link>
+                      )}
+                    </div>
+                  </article>
+                )
+              })}
+              {filteredEvidenceDocuments.length === 0 && (
                 <div className="empty-state">{"\u5F53\u524D\u8282\u70B9\u8FD8\u6CA1\u6709\u8BC1\u636E\u6587\u6863\u3002"}</div>
               )}
             </div>
