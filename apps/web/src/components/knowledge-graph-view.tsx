@@ -1,7 +1,19 @@
 "use client"
 
 import Link from "next/link"
-import { PointerEvent, useDeferredValue, useEffect, useRef, useState } from "react"
+import { PointerEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
+import {
+  forceCenter,
+  forceCollide,
+  forceLink,
+  forceManyBody,
+  forceSimulation,
+  forceX,
+  forceY,
+  Simulation,
+  SimulationLinkDatum,
+  SimulationNodeDatum,
+} from "d3-force"
 import {
   KnowledgeEvidenceResult,
   KnowledgeGraphEdge,
@@ -47,6 +59,7 @@ type DragState = {
   pointerId: number
   offsetX: number
   offsetY: number
+  wasPinned: boolean
 } | null
 
 type PositionedNode = KnowledgeGraphNode & {
@@ -54,6 +67,18 @@ type PositionedNode = KnowledgeGraphNode & {
   y: number
   radius: number
   color: string
+}
+
+type ForceGraphNode = PositionedNode &
+  SimulationNodeDatum & {
+    anchorX: number
+    anchorY: number
+  }
+
+type ForceGraphLink = SimulationLinkDatum<ForceGraphNode> & {
+  source: ForceGraphNode
+  target: ForceGraphNode
+  weight: number
 }
 
 type SelectedConnection = {
@@ -516,14 +541,17 @@ export function KnowledgeGraphView({
   initialFocus?: string
 }) {
   const svgRef = useRef<SVGSVGElement | null>(null)
-  const animationFrameRef = useRef<number | null>(null)
+  const publishFrameRef = useRef<number | null>(null)
   const animatedPositionsRef = useRef<Record<string, NodePosition>>({})
-  const targetPositionsRef = useRef<Record<string, NodePosition>>({})
-  const velocityRef = useRef<Record<string, NodePosition>>({})
-  const loopRunningRef = useRef(false)
-  const allGroups = [...new Set(graph.nodes.map((node) => node.group))].sort((a, b) => a.localeCompare(b, "zh-CN"))
-  const allRelationTypes = [...new Set(graph.edges.flatMap((edge) => edgeRelationTypes(edge)))].sort((a, b) =>
-    a.localeCompare(b, "en"),
+  const simulationRef = useRef<Simulation<ForceGraphNode, ForceGraphLink> | null>(null)
+  const simulationNodeMapRef = useRef<Map<string, ForceGraphNode>>(new Map())
+  const allGroups = useMemo(
+    () => [...new Set(graph.nodes.map((node) => node.group))].sort((a, b) => a.localeCompare(b, "zh-CN")),
+    [graph.nodes],
+  )
+  const allRelationTypes = useMemo(
+    () => [...new Set(graph.edges.flatMap((edge) => edgeRelationTypes(edge)))].sort((a, b) => a.localeCompare(b, "en")),
+    [graph.edges],
   )
   const [query, setQuery] = useState("")
   const [scope, setScope] = useState<GraphScope>("all")
@@ -541,81 +569,177 @@ export function KnowledgeGraphView({
   const [evidenceError, setEvidenceError] = useState<string | undefined>()
   const deferredQuery = useDeferredValue(query)
 
-  const activeRelationTypeSet = new Set(activeRelationTypes)
-  const relationScopedEdges =
-    activeRelationTypes.length === 0
-      ? []
-      : graph.edges.filter((edge) =>
-          edgeRelationTypes(edge).some((relationType) => activeRelationTypeSet.has(relationType)),
-        )
+  const {
+    baseLayout,
+    layoutNodesWithOverrides,
+    layoutSignature,
+    visibleNodes,
+    visibleEdges,
+    visibleRelationTypes,
+    collapsedNodeIds,
+    degreeMap,
+    selectedNode,
+    selectedConnections,
+    selectedNodeRelationTypes,
+    selectedEvidenceDocuments,
+    relationSummary,
+    groupSummary,
+    allDocumentLabels,
+  } = useMemo(() => {
+    const activeRelationTypeSet = new Set(activeRelationTypes)
+    const relationScopedEdges =
+      activeRelationTypes.length === 0
+        ? []
+        : graph.edges.filter((edge) =>
+            edgeRelationTypes(edge).some((relationType) => activeRelationTypeSet.has(relationType)),
+          )
 
-  const baseVisibleIds =
-    activeRelationTypes.length === 0
-      ? new Set<string>()
-      : buildVisibleNodeIds(
-          graph.nodes,
-          relationScopedEdges,
-          deferredQuery,
-          initialFocus,
-          activeGroups,
-          scope,
-          localDepth,
-          selectedNodeId,
-        )
+    const baseVisibleIds =
+      activeRelationTypes.length === 0
+        ? new Set<string>()
+        : buildVisibleNodeIds(
+            graph.nodes,
+            relationScopedEdges,
+            deferredQuery,
+            initialFocus,
+            activeGroups,
+            scope,
+            localDepth,
+            selectedNodeId,
+          )
 
-  const baseVisibleNodes = graph.nodes.filter((node) => baseVisibleIds.has(node.id))
-  const baseVisibleNodeIdSet = new Set(baseVisibleNodes.map((node) => node.id))
-  const baseVisibleEdges = relationScopedEdges.filter(
-    (edge) => baseVisibleNodeIdSet.has(edge.source) && baseVisibleNodeIdSet.has(edge.target),
-  )
-  const baseDegreeMap = buildDegreeMap(baseVisibleEdges)
-  const protectedNodeIds = new Set(
-    [selectedNodeId, initialFocus, ...pinnedNodeIds].filter((nodeId): nodeId is string => Boolean(nodeId)),
-  )
-  const collapsedNodeIds = new Set(
-    baseVisibleNodes
-      .filter((node) => {
-        if (collapseMode === "none" || protectedNodeIds.has(node.id)) {
-          return false
-        }
+    const baseVisibleNodes = graph.nodes.filter((node) => baseVisibleIds.has(node.id))
+    const baseVisibleNodeIdSet = new Set(baseVisibleNodes.map((node) => node.id))
+    const baseVisibleEdges = relationScopedEdges.filter(
+      (edge) => baseVisibleNodeIdSet.has(edge.source) && baseVisibleNodeIdSet.has(edge.target),
+    )
+    const baseDegreeMap = buildDegreeMap(baseVisibleEdges)
+    const protectedNodeIds = new Set(
+      [selectedNodeId, initialFocus, ...pinnedNodeIds].filter((nodeId): nodeId is string => Boolean(nodeId)),
+    )
+    const collapsedNodeIds = new Set(
+      baseVisibleNodes
+        .filter((node) => {
+          if (collapseMode === "none" || protectedNodeIds.has(node.id)) {
+            return false
+          }
 
-        const degree = baseDegreeMap.get(node.id) ?? 0
-        if (collapseMode === "leaf") {
-          return degree <= 1
-        }
+          const degree = baseDegreeMap.get(node.id) ?? 0
+          if (collapseMode === "leaf") {
+            return degree <= 1
+          }
 
-        return degree <= 2 && node.weight <= 3
-      })
-      .map((node) => node.id),
-  )
-  const visibleNodes = baseVisibleNodes.filter((node) => !collapsedNodeIds.has(node.id))
-  const visibleNodeIdSet = new Set(visibleNodes.map((node) => node.id))
-  const visibleEdges = baseVisibleEdges.filter(
-    (edge) => visibleNodeIdSet.has(edge.source) && visibleNodeIdSet.has(edge.target),
-  )
-  const degreeMap = buildDegreeMap(visibleEdges)
+          return degree <= 2 && node.weight <= 3
+        })
+        .map((node) => node.id),
+    )
+    const visibleNodes = baseVisibleNodes.filter((node) => !collapsedNodeIds.has(node.id))
+    const visibleNodeIdSet = new Set(visibleNodes.map((node) => node.id))
+    const visibleEdges = baseVisibleEdges.filter(
+      (edge) => visibleNodeIdSet.has(edge.source) && visibleNodeIdSet.has(edge.target),
+    )
+    const degreeMap = buildDegreeMap(visibleEdges)
+    const selectedNode =
+      visibleNodes.find((node) => node.id === selectedNodeId) ??
+      visibleNodes.find((node) => node.id === initialFocus) ??
+      visibleNodes[0]
+    const selectedAnchorId = selectedNode?.id ?? initialFocus
+    const baseLayout = layoutNodes(visibleNodes, visibleEdges, scope, selectedAnchorId)
+    const layoutNodesWithOverrides = baseLayout.nodes.map((node) => {
+      const override = nodeOverrides[node.id]
+      return override
+        ? {
+            ...node,
+            ...clampPosition(baseLayout.width, baseLayout.height, override),
+          }
+        : node
+    })
+    const layoutSignature = `${selectedAnchorId ?? ""}|${layoutNodesWithOverrides
+      .map((node) => `${node.id}:${Math.round(node.x)}:${Math.round(node.y)}:${Math.round(node.radius)}`)
+      .join("|")}`
+    const allDocumentLabels = new Map(
+      graph.nodes
+        .filter((node) => node.group === "document" && typeof node.slug === "string")
+        .map((node) => [node.slug as string, node.label]),
+    )
+    const visibleNodeMap = new Map(visibleNodes.map((node) => [node.id, node]))
+    const selectedConnections: SelectedConnection[] = selectedNode
+      ? visibleEdges
+          .map((edge) => {
+            if (edge.source !== selectedNode.id && edge.target !== selectedNode.id) {
+              return undefined
+            }
 
-  const selectedNode =
-    visibleNodes.find((node) => node.id === selectedNodeId) ??
-    visibleNodes.find((node) => node.id === initialFocus) ??
-    visibleNodes[0]
-  const selectedAnchorId = selectedNode?.id ?? initialFocus
-  const baseLayout = layoutNodes(visibleNodes, visibleEdges, scope, selectedAnchorId)
-  const layoutNodesWithOverrides = baseLayout.nodes.map((node) => {
-    const override = nodeOverrides[node.id]
-    return override
-      ? {
-          ...node,
-          ...clampPosition(baseLayout.width, baseLayout.height, override),
-        }
-      : node
-  })
-  const targetPositions = Object.fromEntries(
-    layoutNodesWithOverrides.map((node) => [node.id, { x: node.x, y: node.y }]),
-  ) as Record<string, NodePosition>
-  const layoutSignature = `${selectedAnchorId ?? ""}|${layoutNodesWithOverrides
-    .map((node) => `${node.id}:${Math.round(node.x)}:${Math.round(node.y)}:${Math.round(node.radius)}`)
-    .join("|")}`
+            const direction = edge.source === selectedNode.id ? "outgoing" : "incoming"
+            const peerId = direction === "outgoing" ? edge.target : edge.source
+            const peer = visibleNodeMap.get(peerId)
+            if (!peer) {
+              return undefined
+            }
+
+            return {
+              edge,
+              peer,
+              direction,
+            }
+          })
+          .filter((item): item is SelectedConnection => Boolean(item))
+          .sort(
+            (a, b) =>
+              edgeWeight(b.edge) - edgeWeight(a.edge) ||
+              a.peer.label.localeCompare(b.peer.label, "zh-CN") ||
+              a.direction.localeCompare(b.direction, "en"),
+          )
+      : []
+    const selectedNodeRelationTypes = [
+      ...new Set(selectedConnections.flatMap((connection) => edgeRelationTypes(connection.edge))),
+    ]
+    const selectedEvidenceDocuments = [
+      ...new Set(selectedConnections.flatMap((connection) => edgeEvidenceSlugs(connection.edge))),
+    ]
+      .map((slug) => ({
+        slug,
+        title: allDocumentLabels.get(slug) ?? slug.split("/").at(-1) ?? slug,
+      }))
+      .sort((a, b) => a.title.localeCompare(b.title, "zh-CN"))
+    const relationSummary = buildCountSummary(
+      selectedConnections.flatMap((connection) => edgeRelationTypes(connection.edge)),
+    )
+    const groupSummary = buildCountSummary(selectedConnections.map((connection) => connection.peer.group))
+    const visibleRelationTypes = [...new Set(visibleEdges.flatMap((edge) => edgeRelationTypes(edge)))]
+
+    return {
+      baseLayout,
+      layoutNodesWithOverrides,
+      layoutSignature,
+      visibleNodes,
+      visibleEdges,
+      visibleRelationTypes,
+      collapsedNodeIds,
+      degreeMap,
+      selectedNode,
+      selectedConnections,
+      selectedNodeRelationTypes,
+      selectedEvidenceDocuments,
+      relationSummary,
+      groupSummary,
+      allDocumentLabels,
+    }
+  }, [
+    activeGroups,
+    activeRelationTypes,
+    collapseMode,
+    deferredQuery,
+    graph.edges,
+    graph.nodes,
+    initialFocus,
+    localDepth,
+    nodeOverrides,
+    pinnedNodeIds,
+    scope,
+    selectedNodeId,
+  ])
+
   const renderedNodes = layoutNodesWithOverrides.map((node) => {
     const animated = animatedPositions[node.id]
     return animated
@@ -625,62 +749,17 @@ export function KnowledgeGraphView({
         }
       : node
   })
-  const positionedMap = new Map(renderedNodes.map((node) => [node.id, node]))
-  const allDocumentLabels = new Map(
-    graph.nodes
-      .filter((node) => node.group === "document" && typeof node.slug === "string")
-      .map((node) => [node.slug as string, node.label]),
+  const positionedMap = useMemo(() => new Map(renderedNodes.map((node) => [node.id, node])), [renderedNodes])
+  const layoutPositionMap = useMemo(
+    () => new Map(layoutNodesWithOverrides.map((node) => [node.id, node])),
+    [layoutNodesWithOverrides],
   )
-
   const selectedNodeHref = selectedNode ? graphNodeHref(sourceId, mode, selectedNode) : undefined
   const selectedPosition = selectedNode ? positionedMap.get(selectedNode.id) : undefined
   const selectedNodePinned = selectedNode ? pinnedNodeIds.includes(selectedNode.id) : false
-
-  const selectedConnections: SelectedConnection[] = selectedNode
-    ? visibleEdges
-        .map((edge) => {
-          if (edge.source !== selectedNode.id && edge.target !== selectedNode.id) {
-            return undefined
-          }
-
-          const direction = edge.source === selectedNode.id ? "outgoing" : "incoming"
-          const peerId = direction === "outgoing" ? edge.target : edge.source
-          const peer = visibleNodes.find((node) => node.id === peerId)
-          if (!peer) {
-            return undefined
-          }
-
-          return {
-            edge,
-            peer,
-            direction,
-          }
-        })
-        .filter((item): item is SelectedConnection => Boolean(item))
-        .sort(
-          (a, b) =>
-            edgeWeight(b.edge) - edgeWeight(a.edge) ||
-            a.peer.label.localeCompare(b.peer.label, "zh-CN") ||
-            a.direction.localeCompare(b.direction, "en"),
-        )
-    : []
-
-  const selectedNodeRelationTypes = [
-    ...new Set(selectedConnections.flatMap((connection) => edgeRelationTypes(connection.edge))),
-  ]
-  const selectedEvidenceDocuments = [
-    ...new Set(selectedConnections.flatMap((connection) => edgeEvidenceSlugs(connection.edge))),
-  ]
-    .map((slug) => ({
-      slug,
-      title: allDocumentLabels.get(slug) ?? slug.split("/").at(-1) ?? slug,
-    }))
-    .sort((a, b) => a.title.localeCompare(b.title, "zh-CN"))
   const selectedEvidenceKey = evidenceNodeKey(selectedNode)
   const selectedEvidenceResult = selectedEvidenceKey ? evidenceCache[selectedEvidenceKey] : undefined
   const selectedEvidencePreviewDocuments = selectedEvidenceResult?.documents.slice(0, 6) ?? []
-  const relationSummary = buildCountSummary(selectedConnections.flatMap((connection) => edgeRelationTypes(connection.edge)))
-  const groupSummary = buildCountSummary(selectedConnections.map((connection) => connection.peer.group))
   const selectedSummary = selectedEvidenceResult?.summary ?? {
     relationCount: selectedConnections.length,
     evidenceDocumentCount: selectedEvidenceDocuments.length,
@@ -688,115 +767,201 @@ export function KnowledgeGraphView({
     outgoingCount: selectedConnections.filter((connection) => connection.direction === "outgoing").length,
   }
 
-  const visibleRelationTypes = [...new Set(visibleEdges.flatMap((edge) => edgeRelationTypes(edge)))]
+  const publishSimulationPositions = (nodes: ForceGraphNode[]) => {
+    const nextPositions: Record<string, NodePosition> = {}
 
-  const scheduleAnimation = () => {
-    if (loopRunningRef.current) {
+    for (const node of nodes) {
+      const nextPosition = clampPosition(baseLayout.width, baseLayout.height, {
+        x: typeof node.x === "number" ? node.x : node.anchorX,
+        y: typeof node.y === "number" ? node.y : node.anchorY,
+      })
+      node.x = nextPosition.x
+      node.y = nextPosition.y
+
+      if (node.fx != null) {
+        node.fx = nextPosition.x
+      }
+      if (node.fy != null) {
+        node.fy = nextPosition.y
+      }
+
+      nextPositions[node.id] = nextPosition
+    }
+
+    animatedPositionsRef.current = nextPositions
+    setAnimatedPositions(nextPositions)
+  }
+
+  const scheduleSimulationPublish = (nodes: ForceGraphNode[]) => {
+    if (publishFrameRef.current !== null) {
       return
     }
 
-    loopRunningRef.current = true
+    publishFrameRef.current = requestAnimationFrame(() => {
+      publishFrameRef.current = null
+      publishSimulationPositions(nodes)
+    })
+  }
 
-    const step = () => {
-      const targetEntries = Object.entries(targetPositionsRef.current)
-      const nextPositions: Record<string, NodePosition> = {}
-      const nextVelocities: Record<string, NodePosition> = {}
-      let animating = false
+  const getCurrentNodePosition = (nodeId: string) => {
+    const simulationNode = simulationNodeMapRef.current.get(nodeId)
+    if (simulationNode && typeof simulationNode.x === "number" && typeof simulationNode.y === "number") {
+      return clampPosition(baseLayout.width, baseLayout.height, {
+        x: simulationNode.x,
+        y: simulationNode.y,
+      })
+    }
 
-      for (const [nodeId, target] of targetEntries) {
-        const current = animatedPositionsRef.current[nodeId] ?? target
-        const velocity = velocityRef.current[nodeId] ?? { x: 0, y: 0 }
-        const deltaX = target.x - current.x
-        const deltaY = target.y - current.y
-        const nextVelocity = {
-          x: (velocity.x + deltaX * 0.14) * 0.76,
-          y: (velocity.y + deltaY * 0.14) * 0.76,
-        }
+    const animated = animatedPositionsRef.current[nodeId]
+    if (animated) {
+      return clampPosition(baseLayout.width, baseLayout.height, animated)
+    }
 
-        if (
-          Math.abs(deltaX) < 0.24 &&
-          Math.abs(deltaY) < 0.24 &&
-          Math.abs(nextVelocity.x) < 0.18 &&
-          Math.abs(nextVelocity.y) < 0.18
-        ) {
-          nextPositions[nodeId] = target
-          nextVelocities[nodeId] = { x: 0, y: 0 }
-          continue
-        }
-
-        animating = true
-        nextPositions[nodeId] = {
-          x: current.x + nextVelocity.x,
-          y: current.y + nextVelocity.y,
-        }
-        nextVelocities[nodeId] = nextVelocity
-      }
-
-      animatedPositionsRef.current = nextPositions
-      velocityRef.current = nextVelocities
-      setAnimatedPositions(nextPositions)
-
-      if (animating) {
-        animationFrameRef.current = requestAnimationFrame(step)
-      } else {
-        loopRunningRef.current = false
-        animationFrameRef.current = null
+    const layoutNode = layoutPositionMap.get(nodeId)
+    if (layoutNode) {
+      return {
+        x: layoutNode.x,
+        y: layoutNode.y,
       }
     }
 
-    animationFrameRef.current = requestAnimationFrame(step)
+    return undefined
   }
 
   useEffect(() => {
-    animatedPositionsRef.current = animatedPositions
-  }, [animatedPositions])
+    if (publishFrameRef.current !== null) {
+      cancelAnimationFrame(publishFrameRef.current)
+      publishFrameRef.current = null
+    }
 
-  useEffect(() => {
-    const center = { x: baseLayout.width / 2, y: baseLayout.height / 2 }
-    const anchorStart =
-      (selectedAnchorId && animatedPositionsRef.current[selectedAnchorId]) ||
-      (selectedAnchorId && targetPositions[selectedAnchorId]) ||
-      center
+    simulationRef.current?.stop()
 
-    const seededPositions = Object.fromEntries(
-      layoutNodesWithOverrides.map((node) => [
-        node.id,
-        animatedPositionsRef.current[node.id] ?? anchorStart,
-      ]),
-    ) as Record<string, NodePosition>
-    const seededVelocities = Object.fromEntries(
-      layoutNodesWithOverrides.map((node) => [node.id, velocityRef.current[node.id] ?? { x: 0, y: 0 }]),
-    ) as Record<string, NodePosition>
-
-    targetPositionsRef.current = targetPositions
-
-    if (dragState) {
-      if (animationFrameRef.current !== null) {
-        cancelAnimationFrame(animationFrameRef.current)
-        animationFrameRef.current = null
-      }
-      loopRunningRef.current = false
-      animatedPositionsRef.current = targetPositions
-      targetPositionsRef.current = targetPositions
-      velocityRef.current = seededVelocities
-      setAnimatedPositions(targetPositions)
+    if (layoutNodesWithOverrides.length === 0) {
+      simulationNodeMapRef.current = new Map()
+      animatedPositionsRef.current = {}
+      setAnimatedPositions({})
       return
     }
 
-    animatedPositionsRef.current = seededPositions
-    velocityRef.current = seededVelocities
-    setAnimatedPositions(seededPositions)
-    scheduleAnimation()
-  }, [baseLayout.height, baseLayout.width, dragState, layoutSignature, selectedAnchorId])
-
-  useEffect(() => {
-    return () => {
-      if (animationFrameRef.current !== null) {
-        cancelAnimationFrame(animationFrameRef.current)
+    const previousNodes = simulationNodeMapRef.current
+    const nodeMap = new Map<string, ForceGraphNode>()
+    const forceNodes = layoutNodesWithOverrides.map((node) => {
+      const previousNode = previousNodes.get(node.id)
+      const animated = animatedPositionsRef.current[node.id]
+      const seededPosition = clampPosition(baseLayout.width, baseLayout.height, {
+        x: nodeOverrides[node.id]?.x ?? previousNode?.x ?? animated?.x ?? node.x,
+        y: nodeOverrides[node.id]?.y ?? previousNode?.y ?? animated?.y ?? node.y,
+      })
+      const isPinned = pinnedNodeIds.includes(node.id)
+      const forceNode: ForceGraphNode = {
+        ...node,
+        x: seededPosition.x,
+        y: seededPosition.y,
+        vx: previousNode?.vx ?? 0,
+        vy: previousNode?.vy ?? 0,
+        anchorX: node.x,
+        anchorY: node.y,
       }
-      loopRunningRef.current = false
+
+      if (isPinned) {
+        forceNode.fx = seededPosition.x
+        forceNode.fy = seededPosition.y
+      }
+
+      nodeMap.set(node.id, forceNode)
+      return forceNode
+    })
+
+    simulationNodeMapRef.current = nodeMap
+    publishSimulationPositions(forceNodes)
+
+    if (forceNodes.length <= 1) {
+      simulationRef.current = null
+      return
     }
-  }, [])
+
+    const forceLinks: ForceGraphLink[] = visibleEdges.flatMap((edge) => {
+      const source = nodeMap.get(edge.source)
+      const target = nodeMap.get(edge.target)
+      if (!source || !target) {
+        return []
+      }
+
+      return [
+        {
+          source,
+          target,
+          weight: edgeWeight(edge),
+        },
+      ]
+    })
+
+    const centerStrength = scope === "local" ? 0.16 : 0.08
+    const anchorStrength = scope === "local" ? 0.12 : 0.07
+    const chargeStrength = mode === "knowledge" ? -220 : -180
+    const linkBaseDistance = scope === "local" ? 68 : 96
+    const simulation = forceSimulation<ForceGraphNode, ForceGraphLink>(forceNodes)
+      .alpha(0.85)
+      .alphaMin(0.02)
+      .alphaDecay(0.06)
+      .velocityDecay(0.3)
+      .force("charge", forceManyBody<ForceGraphNode>().strength((node) => chargeStrength - Math.min(node.weight, 8) * 18))
+      .force(
+        "link",
+        forceLink<ForceGraphNode, ForceGraphLink>(forceLinks)
+          .distance((link) => Math.max(44, linkBaseDistance - Math.min(link.weight, 6) * 8))
+          .strength((link) => Math.min(scope === "local" ? 0.75 : 0.55, 0.16 + link.weight * 0.08)),
+      )
+      .force("collide", forceCollide<ForceGraphNode>().radius((node) => node.radius + 10).iterations(2))
+      .force("center", forceCenter(baseLayout.width / 2, baseLayout.height / 2).strength(centerStrength))
+      .force(
+        "anchor-x",
+        forceX<ForceGraphNode>((node) => node.anchorX).strength((node) =>
+          pinnedNodeIds.includes(node.id) ? 0.3 : anchorStrength,
+        ),
+      )
+      .force(
+        "anchor-y",
+        forceY<ForceGraphNode>((node) => node.anchorY).strength((node) =>
+          pinnedNodeIds.includes(node.id) ? 0.3 : anchorStrength,
+        ),
+      )
+
+    simulation.on("tick", () => {
+      scheduleSimulationPublish(forceNodes)
+    })
+    simulation.on("end", () => {
+      scheduleSimulationPublish(forceNodes)
+    })
+
+    simulationRef.current = simulation
+
+    return () => {
+      simulation.on("tick", null)
+      simulation.on("end", null)
+      simulation.stop()
+
+      if (simulationRef.current === simulation) {
+        simulationRef.current = null
+      }
+
+      if (publishFrameRef.current !== null) {
+        cancelAnimationFrame(publishFrameRef.current)
+        publishFrameRef.current = null
+      }
+    }
+  }, [
+    baseLayout.height,
+    baseLayout.width,
+    layoutNodesWithOverrides,
+    layoutPositionMap,
+    layoutSignature,
+    mode,
+    nodeOverrides,
+    pinnedNodeIds,
+    scope,
+    visibleEdges,
+  ])
 
   useEffect(() => {
     if (!selectedEvidenceKey) {
@@ -858,28 +1023,64 @@ export function KnowledgeGraphView({
     return () => controller.abort()
   }, [selectedEvidenceKey, selectedEvidenceResult, selectedNode?.entityKey, selectedNode?.slug, sourceId])
 
-  const setNodePinned = (nodeId: string, pinned: boolean) => {
-    setPinnedNodeIds((current) => {
-      if (pinned) {
-        return current.includes(nodeId) ? current : [...current, nodeId]
-      }
-      return current.filter((item) => item !== nodeId)
-    })
+  const pinNodeAtPosition = (nodeId: string, position?: NodePosition) => {
+    const nextPosition = position ?? getCurrentNodePosition(nodeId)
+    if (!nextPosition) {
+      return
+    }
+
+    const clamped = clampPosition(baseLayout.width, baseLayout.height, nextPosition)
+    const simulationNode = simulationNodeMapRef.current.get(nodeId)
+    if (simulationNode) {
+      simulationNode.x = clamped.x
+      simulationNode.y = clamped.y
+      simulationNode.fx = clamped.x
+      simulationNode.fy = clamped.y
+    }
+
+    setNodeOverrides((current) => ({
+      ...current,
+      [nodeId]: clamped,
+    }))
+    setPinnedNodeIds((current) => (current.includes(nodeId) ? current : [...current, nodeId]))
+    animatedPositionsRef.current = {
+      ...animatedPositionsRef.current,
+      [nodeId]: clamped,
+    }
+    setAnimatedPositions(animatedPositionsRef.current)
+    simulationRef.current?.alpha(0.18).restart()
   }
 
-  const resetNodePosition = (nodeId: string) => {
+  const releaseNodePosition = (nodeId: string) => {
+    const simulationNode = simulationNodeMapRef.current.get(nodeId)
+    if (simulationNode) {
+      simulationNode.fx = null
+      simulationNode.fy = null
+    }
+
     setNodeOverrides((current) => {
       const next = { ...current }
       delete next[nodeId]
       return next
     })
     setPinnedNodeIds((current) => current.filter((item) => item !== nodeId))
+    simulationRef.current?.alpha(0.28).restart()
+  }
+
+  const resetNodePosition = (nodeId: string) => {
+    releaseNodePosition(nodeId)
   }
 
   const resetLayout = () => {
+    for (const node of simulationNodeMapRef.current.values()) {
+      node.fx = null
+      node.fy = null
+    }
+
     setNodeOverrides({})
     setPinnedNodeIds([])
     setDragState(null)
+    simulationRef.current?.alpha(0.32).restart()
   }
 
   const handleNodePointerDown = (event: PointerEvent<SVGGElement>, node: PositionedNode) => {
@@ -890,15 +1091,23 @@ export function KnowledgeGraphView({
     event.preventDefault()
     event.stopPropagation()
     setSelectedNodeId(node.id)
-    setNodePinned(node.id, true)
 
+    const currentPosition = getCurrentNodePosition(node.id) ?? { x: node.x, y: node.y }
     const point = svgPointFromClient(svgRef.current, event.clientX, event.clientY)
+    const simulationNode = simulationNodeMapRef.current.get(node.id)
+    if (simulationNode) {
+      simulationNode.fx = currentPosition.x
+      simulationNode.fy = currentPosition.y
+    }
+
     setDragState({
       nodeId: node.id,
       pointerId: event.pointerId,
-      offsetX: point.x - node.x,
-      offsetY: point.y - node.y,
+      offsetX: point.x - currentPosition.x,
+      offsetY: point.y - currentPosition.y,
+      wasPinned: pinnedNodeIds.includes(node.id),
     })
+    simulationRef.current?.alphaTarget(0.22).restart()
     event.currentTarget.setPointerCapture(event.pointerId)
   }
 
@@ -908,16 +1117,42 @@ export function KnowledgeGraphView({
     }
 
     const point = svgPointFromClient(svgRef.current, event.clientX, event.clientY)
-    setNodeOverrides((current) => ({
-      ...current,
-      [dragState.nodeId]: clampPosition(baseLayout.width, baseLayout.height, {
-        x: point.x - dragState.offsetX,
-        y: point.y - dragState.offsetY,
-      }),
-    }))
+    const nextPosition = clampPosition(baseLayout.width, baseLayout.height, {
+      x: point.x - dragState.offsetX,
+      y: point.y - dragState.offsetY,
+    })
+    const simulationNode = simulationNodeMapRef.current.get(dragState.nodeId)
+    if (!simulationNode) {
+      return
+    }
+
+    simulationNode.x = nextPosition.x
+    simulationNode.y = nextPosition.y
+    simulationNode.fx = nextPosition.x
+    simulationNode.fy = nextPosition.y
+    animatedPositionsRef.current = {
+      ...animatedPositionsRef.current,
+      [dragState.nodeId]: nextPosition,
+    }
+    setAnimatedPositions(animatedPositionsRef.current)
+    simulationRef.current?.alphaTarget(0.22).restart()
   }
 
   const handlePointerEnd = () => {
+    if (!dragState) {
+      return
+    }
+
+    const finalPosition = getCurrentNodePosition(dragState.nodeId)
+    const simulationNode = simulationNodeMapRef.current.get(dragState.nodeId)
+    if (dragState.wasPinned) {
+      pinNodeAtPosition(dragState.nodeId, finalPosition)
+    } else if (simulationNode) {
+      simulationNode.fx = null
+      simulationNode.fy = null
+      simulationRef.current?.alphaTarget(0).restart()
+    }
+
     setDragState(null)
   }
 
@@ -1078,11 +1313,10 @@ export function KnowledgeGraphView({
                     if (selectedNodePinned) {
                       resetNodePosition(selectedNode.id)
                     } else if (selectedPosition) {
-                      setNodeOverrides((current) => ({
-                        ...current,
-                        [selectedNode.id]: { x: selectedPosition.x, y: selectedPosition.y },
-                      }))
-                      setNodePinned(selectedNode.id, true)
+                      pinNodeAtPosition(selectedNode.id, {
+                        x: selectedPosition.x,
+                        y: selectedPosition.y,
+                      })
                     }
                   }}
                 >
@@ -1157,11 +1391,10 @@ export function KnowledgeGraphView({
                       if (pinned) {
                         resetNodePosition(node.id)
                       } else {
-                        setNodeOverrides((current) => ({
-                          ...current,
-                          [node.id]: { x: node.x, y: node.y },
-                        }))
-                        setNodePinned(node.id, true)
+                        pinNodeAtPosition(node.id, {
+                          x: node.x,
+                          y: node.y,
+                        })
                       }
                     }}
                     onPointerDown={(event) => handleNodePointerDown(event, node)}
@@ -1250,11 +1483,10 @@ export function KnowledgeGraphView({
                       if (selectedNodePinned) {
                         resetNodePosition(selectedNode.id)
                       } else if (selectedPosition) {
-                        setNodeOverrides((current) => ({
-                          ...current,
-                          [selectedNode.id]: { x: selectedPosition.x, y: selectedPosition.y },
-                        }))
-                        setNodePinned(selectedNode.id, true)
+                        pinNodeAtPosition(selectedNode.id, {
+                          x: selectedPosition.x,
+                          y: selectedPosition.y,
+                        })
                       }
                     }}
                   >
