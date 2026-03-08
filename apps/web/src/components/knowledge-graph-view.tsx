@@ -518,6 +518,9 @@ export function KnowledgeGraphView({
   const svgRef = useRef<SVGSVGElement | null>(null)
   const animationFrameRef = useRef<number | null>(null)
   const animatedPositionsRef = useRef<Record<string, NodePosition>>({})
+  const targetPositionsRef = useRef<Record<string, NodePosition>>({})
+  const velocityRef = useRef<Record<string, NodePosition>>({})
+  const loopRunningRef = useRef(false)
   const allGroups = [...new Set(graph.nodes.map((node) => node.group))].sort((a, b) => a.localeCompare(b, "zh-CN"))
   const allRelationTypes = [...new Set(graph.edges.flatMap((edge) => edgeRelationTypes(edge)))].sort((a, b) =>
     a.localeCompare(b, "en"),
@@ -610,6 +613,9 @@ export function KnowledgeGraphView({
   const targetPositions = Object.fromEntries(
     layoutNodesWithOverrides.map((node) => [node.id, { x: node.x, y: node.y }]),
   ) as Record<string, NodePosition>
+  const layoutSignature = `${selectedAnchorId ?? ""}|${layoutNodesWithOverrides
+    .map((node) => `${node.id}:${Math.round(node.x)}:${Math.round(node.y)}:${Math.round(node.radius)}`)
+    .join("|")}`
   const renderedNodes = layoutNodesWithOverrides.map((node) => {
     const animated = animatedPositions[node.id]
     return animated
@@ -684,74 +690,113 @@ export function KnowledgeGraphView({
 
   const visibleRelationTypes = [...new Set(visibleEdges.flatMap((edge) => edgeRelationTypes(edge)))]
 
+  const scheduleAnimation = () => {
+    if (loopRunningRef.current) {
+      return
+    }
+
+    loopRunningRef.current = true
+
+    const step = () => {
+      const targetEntries = Object.entries(targetPositionsRef.current)
+      const nextPositions: Record<string, NodePosition> = {}
+      const nextVelocities: Record<string, NodePosition> = {}
+      let animating = false
+
+      for (const [nodeId, target] of targetEntries) {
+        const current = animatedPositionsRef.current[nodeId] ?? target
+        const velocity = velocityRef.current[nodeId] ?? { x: 0, y: 0 }
+        const deltaX = target.x - current.x
+        const deltaY = target.y - current.y
+        const nextVelocity = {
+          x: (velocity.x + deltaX * 0.14) * 0.76,
+          y: (velocity.y + deltaY * 0.14) * 0.76,
+        }
+
+        if (
+          Math.abs(deltaX) < 0.24 &&
+          Math.abs(deltaY) < 0.24 &&
+          Math.abs(nextVelocity.x) < 0.18 &&
+          Math.abs(nextVelocity.y) < 0.18
+        ) {
+          nextPositions[nodeId] = target
+          nextVelocities[nodeId] = { x: 0, y: 0 }
+          continue
+        }
+
+        animating = true
+        nextPositions[nodeId] = {
+          x: current.x + nextVelocity.x,
+          y: current.y + nextVelocity.y,
+        }
+        nextVelocities[nodeId] = nextVelocity
+      }
+
+      animatedPositionsRef.current = nextPositions
+      velocityRef.current = nextVelocities
+      setAnimatedPositions(nextPositions)
+
+      if (animating) {
+        animationFrameRef.current = requestAnimationFrame(step)
+      } else {
+        loopRunningRef.current = false
+        animationFrameRef.current = null
+      }
+    }
+
+    animationFrameRef.current = requestAnimationFrame(step)
+  }
+
   useEffect(() => {
     animatedPositionsRef.current = animatedPositions
   }, [animatedPositions])
 
   useEffect(() => {
-    if (animationFrameRef.current !== null) {
-      cancelAnimationFrame(animationFrameRef.current)
-      animationFrameRef.current = null
-    }
-
     const center = { x: baseLayout.width / 2, y: baseLayout.height / 2 }
     const anchorStart =
       (selectedAnchorId && animatedPositionsRef.current[selectedAnchorId]) ||
       (selectedAnchorId && targetPositions[selectedAnchorId]) ||
       center
 
-    const startPositions = Object.fromEntries(
+    const seededPositions = Object.fromEntries(
       layoutNodesWithOverrides.map((node) => [
         node.id,
         animatedPositionsRef.current[node.id] ?? anchorStart,
       ]),
     ) as Record<string, NodePosition>
+    const seededVelocities = Object.fromEntries(
+      layoutNodesWithOverrides.map((node) => [node.id, velocityRef.current[node.id] ?? { x: 0, y: 0 }]),
+    ) as Record<string, NodePosition>
+
+    targetPositionsRef.current = targetPositions
 
     if (dragState) {
-      animatedPositionsRef.current = targetPositions
-      setAnimatedPositions(targetPositions)
-      return
-    }
-
-    const duration = 560
-    const startTime = performance.now()
-
-    const step = (now: number) => {
-      const progress = Math.min((now - startTime) / duration, 1)
-      const eased = 1 - (1 - progress) ** 3
-      const nextPositions = Object.fromEntries(
-        layoutNodesWithOverrides.map((node) => {
-          const from = startPositions[node.id] ?? center
-          const to = targetPositions[node.id] ?? center
-          return [
-            node.id,
-            {
-              x: from.x + (to.x - from.x) * eased,
-              y: from.y + (to.y - from.y) * eased,
-            },
-          ]
-        }),
-      ) as Record<string, NodePosition>
-
-      animatedPositionsRef.current = nextPositions
-      setAnimatedPositions(nextPositions)
-
-      if (progress < 1) {
-        animationFrameRef.current = requestAnimationFrame(step)
-      } else {
-        animationFrameRef.current = null
-      }
-    }
-
-    animationFrameRef.current = requestAnimationFrame(step)
-
-    return () => {
       if (animationFrameRef.current !== null) {
         cancelAnimationFrame(animationFrameRef.current)
         animationFrameRef.current = null
       }
+      loopRunningRef.current = false
+      animatedPositionsRef.current = targetPositions
+      targetPositionsRef.current = targetPositions
+      velocityRef.current = seededVelocities
+      setAnimatedPositions(targetPositions)
+      return
     }
-  }, [baseLayout.height, baseLayout.width, dragState, layoutNodesWithOverrides, selectedAnchorId, targetPositions])
+
+    animatedPositionsRef.current = seededPositions
+    velocityRef.current = seededVelocities
+    setAnimatedPositions(seededPositions)
+    scheduleAnimation()
+  }, [baseLayout.height, baseLayout.width, dragState, layoutSignature, selectedAnchorId])
+
+  useEffect(() => {
+    return () => {
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current)
+      }
+      loopRunningRef.current = false
+    }
+  }, [])
 
   useEffect(() => {
     if (!selectedEvidenceKey) {
