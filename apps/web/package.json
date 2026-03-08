@@ -8,10 +8,16 @@
     "start": "next start --port 3002"
   },
   "dependencies": {
+    "@sigma/edge-curve": "^3.1.0",
+    "d3-force": "^3.0.0",
+    "graphology": "^0.26.0",
+    "graphology-layout-forceatlas2": "^0.10.1",
+    "graphology-layout-noverlap": "^0.4.2",
     "next": "^15.0.0",
     "pg": "^8.16.3",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "sigma": "^3.0.2"
   },
   "devDependencies": {
     "@types/pg": "^8.15.5",
