@@ -1,10 +1,52 @@
 "use client"
 
 import Link from "next/link"
-import { PointerEvent, WheelEvent, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  Application,
+  Color,
+  Container,
+  FederatedPointerEvent,
+  Graphics,
+  Text,
+  TextStyle,
+} from "pixi.js"
+import {
+  forceCenter,
+  forceCollide,
+  forceLink,
+  forceManyBody,
+  forceSimulation,
+  Simulation,
+  SimulationLinkDatum,
+  SimulationNodeDatum,
+} from "d3-force"
 import { KnowledgeGraphEdge, KnowledgeGraphMode, KnowledgeGraphNode } from "@repo/core/types"
 
-const palette = ["#5c6f7b", "#b7793f", "#58753f", "#7d4d63", "#496d8a", "#7a6540"]
+const palette = ["#6b7c88", "#b7793f", "#62824b", "#8b6075", "#4d7190", "#7d6948"]
+const CANVAS_WIDTH = 960
+const CANVAS_HEIGHT = 560
+
+type Depth = 1 | 2
+
+type GraphNodeData = KnowledgeGraphNode &
+  SimulationNodeDatum & {
+    radius: number
+    color: string
+  }
+
+type GraphLinkData = SimulationLinkDatum<GraphNodeData> & {
+  source: GraphNodeData
+  target: GraphNodeData
+  weight: number
+}
+
+type RenderGraph = {
+  nodes: GraphNodeData[]
+  edges: GraphLinkData[]
+  adjacency: Map<string, Set<string>>
+  degreeMap: Map<string, number>
+}
 
 type ViewTransform = {
   x: number
@@ -12,20 +54,15 @@ type ViewTransform = {
   scale: number
 }
 
-type PanState = {
-  pointerId: number
-  startClientX: number
-  startClientY: number
-  originX: number
-  originY: number
-} | null
+type NodeRenderDatum = {
+  node: GraphNodeData
+  gfx: Graphics
+  label: Text
+}
 
-type PositionedNode = KnowledgeGraphNode & {
-  x: number
-  y: number
-  radius: number
-  depth: number
-  color: string
+type EdgeRenderDatum = {
+  edge: GraphLinkData
+  gfx: Graphics
 }
 
 const groupLabels: Record<string, string> = {
@@ -53,7 +90,7 @@ function colorForGroup(group: string) {
   return palette[hashValue(group) % palette.length]
 }
 
-function edgeWeight(edge: KnowledgeGraphEdge) {
+function edgeWeight(edge: KnowledgeGraphEdge | GraphLinkData) {
   return edge.weight ?? 1
 }
 
@@ -86,7 +123,11 @@ function analysisHref(sourceId: string, mode: KnowledgeGraphMode, node: Knowledg
   return undefined
 }
 
-function buildAdjacency(edges: KnowledgeGraphEdge[], allowedIds: Set<string>) {
+function clampScale(scale: number) {
+  return Math.min(2.8, Math.max(0.65, scale))
+}
+
+function buildAdjacency(edges: Array<{ source: string; target: string }>, allowedIds: Set<string>) {
   const adjacency = new Map<string, Set<string>>()
 
   for (const edge of edges) {
@@ -120,6 +161,7 @@ function buildDepthMap(anchorId: string, adjacency: Map<string, Set<string>>, ma
       if (depthMap.has(nextId)) {
         continue
       }
+
       depthMap.set(nextId, current.depth + 1)
       queue.push({ id: nextId, depth: current.depth + 1 })
     }
@@ -128,7 +170,7 @@ function buildDepthMap(anchorId: string, adjacency: Map<string, Set<string>>, ma
   return depthMap
 }
 
-function buildDegreeMap(edges: KnowledgeGraphEdge[]) {
+function buildDegreeMap(edges: Array<{ source: string; target: string }>) {
   const degrees = new Map<string, number>()
 
   for (const edge of edges) {
@@ -139,19 +181,23 @@ function buildDegreeMap(edges: KnowledgeGraphEdge[]) {
   return degrees
 }
 
-function rankNodes(
+function buildRenderGraph(
   nodes: KnowledgeGraphNode[],
-  depthMap: Map<string, number>,
-  degreeMap: Map<string, number>,
+  edges: KnowledgeGraphEdge[],
   focusNodeId: string,
+  depth: Depth,
 ) {
-  return [...nodes].sort((left, right) => {
-    const leftFocus = left.id === focusNodeId ? 1 : 0
-    const rightFocus = right.id === focusNodeId ? 1 : 0
-    if (leftFocus !== rightFocus) {
-      return rightFocus - leftFocus
-    }
+  const nodeIds = new Set(nodes.map((node) => node.id))
+  const adjacency = buildAdjacency(edges, nodeIds)
+  const depthMap = buildDepthMap(focusNodeId, adjacency, depth)
+  const neighborhoodNodes = nodes.filter((node) => depthMap.has(node.id))
+  const neighborhoodNodeIds = new Set(neighborhoodNodes.map((node) => node.id))
+  const neighborhoodEdges = edges.filter(
+    (edge) => neighborhoodNodeIds.has(edge.source) && neighborhoodNodeIds.has(edge.target),
+  )
+  const degreeMap = buildDegreeMap(neighborhoodEdges)
 
+  const rankedNodes = [...neighborhoodNodes].sort((left, right) => {
     const leftDepth = depthMap.get(left.id) ?? Number.MAX_SAFE_INTEGER
     const rightDepth = depthMap.get(right.id) ?? Number.MAX_SAFE_INTEGER
     if (leftDepth !== rightDepth) {
@@ -169,36 +215,24 @@ function rankNodes(
 
     return left.label.localeCompare(right.label, "zh-CN")
   })
-}
 
-function buildCompactGraph(
-  nodes: KnowledgeGraphNode[],
-  edges: KnowledgeGraphEdge[],
-  focusNodeId: string,
-  depth: 1 | 2,
-) {
-  const width = 960
-  const height = 560
-  const centerX = width / 2
-  const centerY = height / 2
-  const allNodeIds = new Set(nodes.map((node) => node.id))
-  const adjacency = buildAdjacency(edges, allNodeIds)
-  const fullDepthMap = buildDepthMap(focusNodeId, adjacency, depth)
-  const visibleNodes = nodes.filter((node) => fullDepthMap.has(node.id))
-  const visibleNodeIds = new Set(visibleNodes.map((node) => node.id))
-  const visibleEdges = edges.filter(
-    (edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target),
-  )
-  const degreeMap = buildDegreeMap(visibleEdges)
-  const rankedNodes = rankNodes(visibleNodes, fullDepthMap, degreeMap, focusNodeId)
-  const maxNodeCount = depth === 1 ? 32 : 60
+  const maxNodeCount = depth === 1 ? 28 : 56
   const keptIds = new Set(rankedNodes.slice(0, maxNodeCount).map((node) => node.id))
   keptIds.add(focusNodeId)
 
-  const limitedNodes = visibleNodes.filter((node) => keptIds.has(node.id))
-  const limitedNodeIds = new Set(limitedNodes.map((node) => node.id))
-  const limitedEdges = visibleEdges
-    .filter((edge) => limitedNodeIds.has(edge.source) && limitedNodeIds.has(edge.target))
+  const keptNodes: GraphNodeData[] = neighborhoodNodes
+    .filter((node) => keptIds.has(node.id))
+    .map((node) => ({
+      ...node,
+      radius: (node.id === focusNodeId ? 12 : 7.5) + Math.min(node.weight, 10) * (node.id === focusNodeId ? 0.35 : 0.18),
+      color: colorForGroup(node.group),
+      x: node.id === focusNodeId ? 0 : undefined,
+      y: node.id === focusNodeId ? 0 : undefined,
+    }))
+
+  const keptNodeIds = new Set(keptNodes.map((node) => node.id))
+  const keptEdges = neighborhoodEdges
+    .filter((edge) => keptNodeIds.has(edge.source) && keptNodeIds.has(edge.target))
     .sort((left, right) => {
       const leftFocus = left.source === focusNodeId || left.target === focusNodeId ? 1 : 0
       const rightFocus = right.source === focusNodeId || right.target === focusNodeId ? 1 : 0
@@ -207,81 +241,47 @@ function buildCompactGraph(
       }
       return edgeWeight(right) - edgeWeight(left)
     })
-    .slice(0, depth === 1 ? 80 : 140)
-  const compactAdjacency = buildAdjacency(limitedEdges, limitedNodeIds)
-  const depthMap = buildDepthMap(focusNodeId, compactAdjacency, depth)
+    .slice(0, depth === 1 ? 72 : 132)
 
-  const focusNode = limitedNodes.find((node) => node.id === focusNodeId)
-  const positioned: PositionedNode[] = []
-  if (focusNode) {
-    positioned.push({
-      ...focusNode,
-      x: centerX,
-      y: centerY,
-      radius: 13 + Math.min(focusNode.weight, 10) * 0.45,
-      depth: 0,
-      color: colorForGroup(focusNode.group),
-    })
-  }
-
-  for (const ringDepth of [1, 2] as const) {
-    if (ringDepth > depth) {
-      continue
+  const nodeMap = new Map(keptNodes.map((node) => [node.id, node]))
+  const simulationEdges: GraphLinkData[] = keptEdges.flatMap((edge) => {
+    const source = nodeMap.get(edge.source)
+    const target = nodeMap.get(edge.target)
+    if (!source || !target) {
+      return []
     }
 
-    const ringNodes = limitedNodes
-      .filter((node) => (depthMap.get(node.id) ?? Number.MAX_SAFE_INTEGER) === ringDepth)
-      .sort((left, right) => {
-        const degreeDelta = (degreeMap.get(right.id) ?? 0) - (degreeMap.get(left.id) ?? 0)
-        if (degreeDelta !== 0) {
-          return degreeDelta
-        }
-        return right.weight - left.weight
-      })
-
-    const count = Math.max(ringNodes.length, 1)
-    const radiusX = ringDepth === 1 ? 180 : 320
-    const radiusY = ringDepth === 1 ? 120 : 210
-
-    ringNodes.forEach((node, index) => {
-      const angle = (Math.PI * 2 * index) / count - Math.PI / 2
-      positioned.push({
-        ...node,
-        x: centerX + Math.cos(angle) * radiusX,
-        y: centerY + Math.sin(angle) * radiusY,
-        radius: (ringDepth === 1 ? 8 : 6) + Math.min(node.weight, 10) * (ringDepth === 1 ? 0.35 : 0.24),
-        depth: ringDepth,
-        color: colorForGroup(node.group),
-      })
-    })
-  }
+    return [
+      {
+        source,
+        target,
+        weight: edgeWeight(edge),
+      },
+    ]
+  })
 
   return {
-    width,
-    height,
-    nodes: positioned,
-    edges: limitedEdges,
-    degreeMap,
-    adjacency: compactAdjacency,
-  }
+    nodes: keptNodes,
+    edges: simulationEdges,
+    adjacency: buildAdjacency(
+      simulationEdges.map((edge) => ({ source: edge.source.id, target: edge.target.id })),
+      new Set(keptNodes.map((node) => node.id)),
+    ),
+    degreeMap: buildDegreeMap(
+      simulationEdges.map((edge) => ({ source: edge.source.id, target: edge.target.id })),
+    ),
+  } satisfies RenderGraph
 }
 
-function clampScale(scale: number) {
-  return Math.min(2.6, Math.max(0.7, scale))
-}
-
-function graphPointFromClient(
-  container: HTMLDivElement,
-  width: number,
-  height: number,
-  clientX: number,
-  clientY: number,
-) {
-  const rect = container.getBoundingClientRect()
-  return {
-    x: ((clientX - rect.left) / rect.width) * width,
-    y: ((clientY - rect.top) / rect.height) * height,
-  }
+function drawNode(gfx: Graphics, radius: number, fillColor: string, highlighted: boolean) {
+  gfx.clear()
+  gfx.circle(0, 0, radius)
+  gfx.fill(new Color(fillColor))
+  gfx.stroke({
+    width: highlighted ? 3 : 2,
+    color: new Color(highlighted ? "#f6efe2" : "#ffffff"),
+    alpha: highlighted ? 1 : 0.92,
+  })
 }
 
 export function QuartzGraphView({
@@ -299,10 +299,34 @@ export function QuartzGraphView({
   initialFocus?: string
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const appRef = useRef<Application | null>(null)
+  const worldRef = useRef<Container | null>(null)
+  const backgroundRef = useRef<Graphics | null>(null)
+  const linksLayerRef = useRef<Container | null>(null)
+  const nodesLayerRef = useRef<Container | null>(null)
+  const labelsLayerRef = useRef<Container | null>(null)
+  const simulationRef = useRef<Simulation<GraphNodeData, GraphLinkData> | null>(null)
+  const nodeRenderRef = useRef<Map<string, NodeRenderDatum>>(new Map())
+  const edgeRenderRef = useRef<EdgeRenderDatum[]>([])
+  const adjacencyRef = useRef<Map<string, Set<string>>>(new Map())
+  const hoveredNodeIdRef = useRef<string | undefined>(undefined)
+  const selectedNodeIdRef = useRef<string | undefined>(undefined)
+  const dragNodeIdRef = useRef<string | undefined>(undefined)
+  const lastTapRef = useRef<{ nodeId: string; at: number } | null>(null)
+  const viewRef = useRef<ViewTransform>({ x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2, scale: 1 })
+  const panRef = useRef<{
+    active: boolean
+    pointerId: number
+    startX: number
+    startY: number
+    originX: number
+    originY: number
+  } | null>(null)
+  const applyHighlightRef = useRef<() => void>(() => {})
+  const [depth, setDepth] = useState<Depth>(1)
   const defaultFocusNodeId = useMemo(() => {
-    const explicit = initialFocus && graph.nodes.find((node) => node.id === initialFocus)?.id
-    if (explicit) {
-      return explicit
+    if (initialFocus && graph.nodes.some((node) => node.id === initialFocus)) {
+      return initialFocus
     }
 
     return [...graph.nodes]
@@ -310,10 +334,11 @@ export function QuartzGraphView({
   }, [graph.nodes, initialFocus])
   const [focusNodeId, setFocusNodeId] = useState<string | undefined>(defaultFocusNodeId)
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(defaultFocusNodeId)
-  const [hoveredNodeId, setHoveredNodeId] = useState<string | undefined>()
-  const [depth, setDepth] = useState<1 | 2>(1)
-  const [view, setView] = useState<ViewTransform>({ x: 0, y: 0, scale: 1 })
-  const [panState, setPanState] = useState<PanState>(null)
+
+  useEffect(() => {
+    selectedNodeIdRef.current = selectedNodeId
+    applyHighlightRef.current()
+  }, [selectedNodeId])
 
   useEffect(() => {
     if (!focusNodeId && defaultFocusNodeId) {
@@ -324,132 +349,371 @@ export function QuartzGraphView({
     }
   }, [defaultFocusNodeId, focusNodeId, selectedNodeId])
 
-  useEffect(() => {
-    if (!initialFocus) {
-      return
-    }
-    if (graph.nodes.some((node) => node.id === initialFocus)) {
-      setFocusNodeId(initialFocus)
-      setSelectedNodeId(initialFocus)
-    }
-  }, [graph.nodes, initialFocus])
-
-  const compactGraph = useMemo(() => {
+  const renderGraph = useMemo(() => {
     if (!focusNodeId) {
       return undefined
     }
-    return buildCompactGraph(graph.nodes, graph.edges, focusNodeId, depth)
+    return buildRenderGraph(graph.nodes, graph.edges, focusNodeId, depth)
   }, [depth, focusNodeId, graph.edges, graph.nodes])
 
-  const positionedMap = useMemo(
-    () => new Map(compactGraph?.nodes.map((node) => [node.id, node]) ?? []),
-    [compactGraph],
-  )
-
-  const selectedNode = compactGraph?.nodes.find((node) => node.id === selectedNodeId) ?? compactGraph?.nodes[0]
-  const activeNodeId = hoveredNodeId ?? selectedNode?.id
-  const activeNeighbors = useMemo(
-    () => (activeNodeId && compactGraph ? compactGraph.adjacency.get(activeNodeId) ?? new Set<string>() : new Set<string>()),
-    [activeNodeId, compactGraph],
-  )
+  const selectedNode =
+    renderGraph?.nodes.find((node) => node.id === selectedNodeId) ??
+    renderGraph?.nodes.find((node) => node.id === focusNodeId) ??
+    renderGraph?.nodes[0]
 
   const selectedConnections = useMemo(() => {
-    if (!selectedNode || !compactGraph) {
+    if (!selectedNode || !renderGraph) {
       return []
     }
 
-    return compactGraph.edges
-      .filter((edge) => edge.source === selectedNode.id || edge.target === selectedNode.id)
-      .map((edge) => {
-        const peerId = edge.source === selectedNode.id ? edge.target : edge.source
-        return {
-          edge,
-          peer: positionedMap.get(peerId),
-        }
-      })
-      .filter((item): item is { edge: KnowledgeGraphEdge; peer: PositionedNode } => Boolean(item.peer))
-      .sort((left, right) => {
-        const weightDelta = edgeWeight(right.edge) - edgeWeight(left.edge)
-        if (weightDelta !== 0) {
-          return weightDelta
-        }
-        return left.peer.label.localeCompare(right.peer.label, "zh-CN")
-      })
+    return renderGraph.edges
+      .filter((edge) => edge.source.id === selectedNode.id || edge.target.id === selectedNode.id)
+      .map((edge) => ({
+        edge,
+        peer: edge.source.id === selectedNode.id ? edge.target : edge.source,
+      }))
+      .sort((left, right) => edgeWeight(right.edge) - edgeWeight(left.edge))
       .slice(0, 8)
-  }, [compactGraph, positionedMap, selectedNode])
+  }, [renderGraph, selectedNode])
 
-  if (!compactGraph || compactGraph.nodes.length === 0) {
+  useEffect(() => {
+    if (!containerRef.current || appRef.current) {
+      return
+    }
+
+    let cancelled = false
+    const container = containerRef.current
+    const init = async () => {
+      const app = new Application()
+      await app.init({
+        width: CANVAS_WIDTH,
+        height: CANVAS_HEIGHT,
+        antialias: true,
+        autoDensity: true,
+        autoStart: true,
+        backgroundAlpha: 0,
+        resolution: window.devicePixelRatio,
+      })
+
+      if (cancelled) {
+        app.destroy()
+        return
+      }
+
+      app.canvas.style.width = "100%"
+      app.canvas.style.height = "100%"
+      container.appendChild(app.canvas)
+
+      const world = new Container()
+      const background = new Graphics()
+      background.rect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+      background.fill({ color: 0xffffff, alpha: 0.001 })
+      background.eventMode = "static"
+
+      const linksLayer = new Container()
+      const nodesLayer = new Container()
+      const labelsLayer = new Container()
+      labelsLayer.eventMode = "none"
+
+      world.addChild(linksLayer, nodesLayer, labelsLayer)
+      app.stage.addChild(background, world)
+
+      appRef.current = app
+      worldRef.current = world
+      backgroundRef.current = background
+      linksLayerRef.current = linksLayer
+      nodesLayerRef.current = nodesLayer
+      labelsLayerRef.current = labelsLayer
+
+      const handleWheel = (event: WheelEvent) => {
+        event.preventDefault()
+        event.stopPropagation()
+
+        const rect = app.canvas.getBoundingClientRect()
+        const pointX = ((event.clientX - rect.left) / rect.width) * CANVAS_WIDTH
+        const pointY = ((event.clientY - rect.top) / rect.height) * CANVAS_HEIGHT
+        const current = viewRef.current
+        const nextScale = clampScale(current.scale * (event.deltaY < 0 ? 1.08 : 0.92))
+        const worldX = (pointX - current.x) / current.scale
+        const worldY = (pointY - current.y) / current.scale
+
+        viewRef.current = {
+          scale: nextScale,
+          x: pointX - worldX * nextScale,
+          y: pointY - worldY * nextScale,
+        }
+
+        world.position.set(viewRef.current.x, viewRef.current.y)
+        world.scale.set(viewRef.current.scale)
+      }
+
+      app.canvas.addEventListener("wheel", handleWheel, { passive: false })
+
+      background.on("pointerdown", (event: FederatedPointerEvent) => {
+        if (dragNodeIdRef.current) {
+          return
+        }
+
+        panRef.current = {
+          active: true,
+          pointerId: event.pointerId,
+          startX: event.global.x,
+          startY: event.global.y,
+          originX: viewRef.current.x,
+          originY: viewRef.current.y,
+        }
+      })
+
+      background.on("pointermove", (event: FederatedPointerEvent) => {
+        if (!panRef.current || !panRef.current.active || panRef.current.pointerId !== event.pointerId) {
+          return
+        }
+
+        viewRef.current = {
+          ...viewRef.current,
+          x: panRef.current.originX + (event.global.x - panRef.current.startX),
+          y: panRef.current.originY + (event.global.y - panRef.current.startY),
+        }
+
+        world.position.set(viewRef.current.x, viewRef.current.y)
+      })
+
+      const endPan = (event?: FederatedPointerEvent) => {
+        if (!panRef.current) {
+          return
+        }
+        if (event && panRef.current.pointerId !== event.pointerId) {
+          return
+        }
+        panRef.current = null
+      }
+
+      background.on("pointerup", endPan)
+      background.on("pointerupoutside", endPan)
+      background.on("pointerleave", endPan)
+
+      return () => {
+        app.canvas.removeEventListener("wheel", handleWheel)
+      }
+    }
+
+    let detach: (() => void) | undefined
+    void init().then((cleanup) => {
+      detach = cleanup
+    })
+
+    return () => {
+      cancelled = true
+      detach?.()
+      simulationRef.current?.stop()
+      nodeRenderRef.current.clear()
+      edgeRenderRef.current = []
+      if (appRef.current) {
+        appRef.current.destroy()
+      }
+      appRef.current = null
+      worldRef.current = null
+      backgroundRef.current = null
+      linksLayerRef.current = null
+      nodesLayerRef.current = null
+      labelsLayerRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const app = appRef.current
+    const world = worldRef.current
+    const linksLayer = linksLayerRef.current
+    const nodesLayer = nodesLayerRef.current
+    const labelsLayer = labelsLayerRef.current
+    if (!app || !world || !linksLayer || !nodesLayer || !labelsLayer || !renderGraph || !focusNodeId) {
+      return
+    }
+
+    simulationRef.current?.stop()
+    nodeRenderRef.current.clear()
+    edgeRenderRef.current = []
+    adjacencyRef.current = renderGraph.adjacency
+    hoveredNodeIdRef.current = undefined
+    dragNodeIdRef.current = undefined
+
+    linksLayer.removeChildren()
+    nodesLayer.removeChildren()
+    labelsLayer.removeChildren()
+
+    viewRef.current = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2, scale: 1 }
+    world.position.set(viewRef.current.x, viewRef.current.y)
+    world.scale.set(1)
+
+    const labelStyle = new TextStyle({
+      fontFamily: "IBM Plex Sans, Noto Sans SC, sans-serif",
+      fontSize: 12,
+      fill: "#2f3d46",
+      fontWeight: "500",
+    })
+
+      const applyHighlight = () => {
+        const activeNodeId = hoveredNodeIdRef.current ?? selectedNodeIdRef.current ?? focusNodeId
+        const neighbors = activeNodeId ? adjacencyRef.current.get(activeNodeId) ?? new Set<string>() : new Set<string>()
+
+      nodeRenderRef.current.forEach(({ node, gfx, label }) => {
+        const isActive = node.id === activeNodeId
+        const isNeighbor = neighbors.has(node.id)
+        const dimmed = Boolean(activeNodeId) && !isActive && !isNeighbor
+        gfx.alpha = dimmed ? 0.34 : 1
+        gfx.scale.set(isActive ? 1.08 : isNeighbor ? 1.02 : 1)
+        drawNode(gfx, node.radius, node.color, isActive)
+        label.alpha = isActive || isNeighbor ? 1 : 0.16
+      })
+
+      for (const { edge, gfx } of edgeRenderRef.current) {
+        const active =
+          activeNodeId &&
+          (edge.source.id === activeNodeId ||
+            edge.target.id === activeNodeId ||
+            neighbors.has(edge.source.id) ||
+            neighbors.has(edge.target.id))
+        gfx.alpha = active ? 0.9 : 0.22
+      }
+
+      applyHighlightRef.current = applyHighlight
+    }
+
+    for (const node of renderGraph.nodes) {
+      const gfx = new Graphics()
+      drawNode(gfx, node.radius, node.color, node.id === selectedNodeIdRef.current)
+      gfx.eventMode = "static"
+      gfx.cursor = "pointer"
+
+      const label = new Text({
+        text: node.label.length > 16 ? `${node.label.slice(0, 16)}...` : node.label,
+        style: labelStyle,
+        anchor: { x: 0.5, y: 1.1 },
+        alpha: 0.16,
+      })
+
+      gfx.on("pointerover", () => {
+        hoveredNodeIdRef.current = node.id
+        applyHighlight()
+      })
+      gfx.on("pointerout", () => {
+        hoveredNodeIdRef.current = undefined
+        applyHighlight()
+      })
+      gfx.on("pointertap", () => {
+        const now = Date.now()
+        const previous = lastTapRef.current
+        setSelectedNodeId(node.id)
+        if (previous && previous.nodeId === node.id && now - previous.at < 260) {
+          setFocusNodeId(node.id)
+        }
+        lastTapRef.current = { nodeId: node.id, at: now }
+      })
+      gfx.on("pointerdown", (event: FederatedPointerEvent) => {
+        dragNodeIdRef.current = node.id
+        node.fx = (event.global.x - world.position.x) / world.scale.x
+        node.fy = (event.global.y - world.position.y) / world.scale.y
+        simulationRef.current?.alphaTarget(0.9).restart()
+      })
+      gfx.on("pointermove", (event: FederatedPointerEvent) => {
+        if (dragNodeIdRef.current !== node.id) {
+          return
+        }
+        node.fx = (event.global.x - world.position.x) / world.scale.x
+        node.fy = (event.global.y - world.position.y) / world.scale.y
+      })
+
+      const endDrag = () => {
+        if (dragNodeIdRef.current !== node.id) {
+          return
+        }
+        dragNodeIdRef.current = undefined
+        node.fx = null
+        node.fy = null
+        simulationRef.current?.alphaTarget(0)
+      }
+
+      gfx.on("pointerup", endDrag)
+      gfx.on("pointerupoutside", endDrag)
+
+      nodesLayer.addChild(gfx)
+      labelsLayer.addChild(label)
+      nodeRenderRef.current.set(node.id, { node, gfx, label })
+    }
+
+    for (const edge of renderGraph.edges) {
+      const gfx = new Graphics()
+      linksLayer.addChild(gfx)
+      edgeRenderRef.current.push({ edge, gfx })
+    }
+
+    const simulation = forceSimulation<GraphNodeData, GraphLinkData>(renderGraph.nodes)
+      .alpha(0.86)
+      .alphaMin(0.03)
+      .alphaDecay(0.05)
+      .velocityDecay(0.34)
+      .force("charge", forceManyBody<GraphNodeData>().strength((node) => (node.id === focusNodeId ? -340 : -170)))
+      .force("center", forceCenter(0, 0).strength(0.12))
+      .force(
+        "link",
+        forceLink<GraphNodeData, GraphLinkData>(renderGraph.edges)
+          .id((node) => node.id)
+          .distance((link) => (link.source.id === focusNodeId || link.target.id === focusNodeId ? 88 : 64))
+          .strength((link) => (link.source.id === focusNodeId || link.target.id === focusNodeId ? 0.74 : 0.46)),
+      )
+      .force("collide", forceCollide<GraphNodeData>().radius((node) => node.radius + 12).iterations(2))
+
+    simulationRef.current = simulation
+
+    const renderFrame = () => {
+      for (const { edge, gfx } of edgeRenderRef.current) {
+        gfx.clear()
+        gfx.moveTo(edge.source.x ?? 0, edge.source.y ?? 0)
+        gfx.lineTo(edge.target.x ?? 0, edge.target.y ?? 0)
+        gfx.stroke({
+          width:
+            edge.source.id === focusNodeId || edge.target.id === focusNodeId
+              ? 1.5 + Math.min(edge.weight, 4) * 0.15
+              : 1,
+          color: new Color("#8d979a"),
+          alpha: gfx.alpha || 0.22,
+        })
+      }
+
+      nodeRenderRef.current.forEach(({ node, gfx, label }) => {
+        if (typeof node.x === "number" && typeof node.y === "number") {
+          gfx.position.set(node.x, node.y)
+          label.position.set(node.x, node.y + node.radius + 12)
+        }
+      })
+    }
+
+    app.ticker.add(renderFrame)
+    applyHighlight()
+
+    const cooldown = window.setTimeout(() => {
+      simulation.alphaTarget(0)
+      simulation.stop()
+    }, 1400)
+
+    return () => {
+      window.clearTimeout(cooldown)
+      app.ticker.remove(renderFrame)
+      simulation.stop()
+    }
+  }, [focusNodeId, renderGraph])
+
+  if (!renderGraph || !focusNodeId) {
     return <div className="empty-state">No graph data available.</div>
-  }
-
-  const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-
-    if (!containerRef.current) {
-      return
-    }
-
-    const point = graphPointFromClient(
-      containerRef.current,
-      compactGraph.width,
-      compactGraph.height,
-      event.clientX,
-      event.clientY,
-    )
-    const nextScale = clampScale(view.scale * (event.deltaY < 0 ? 1.08 : 0.92))
-    const worldX = (point.x - view.x) / view.scale
-    const worldY = (point.y - view.y) / view.scale
-
-    setView({
-      scale: nextScale,
-      x: point.x - worldX * nextScale,
-      y: point.y - worldY * nextScale,
-    })
-  }
-
-  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    const target = event.target as HTMLElement
-    if (target.closest("[data-node-id]")) {
-      return
-    }
-
-    setPanState({
-      pointerId: event.pointerId,
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-      originX: view.x,
-      originY: view.y,
-    })
-    event.currentTarget.setPointerCapture(event.pointerId)
-  }
-
-  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    if (!panState || event.pointerId !== panState.pointerId) {
-      return
-    }
-
-    setView((current) => ({
-      ...current,
-      x: panState.originX + (event.clientX - panState.startClientX),
-      y: panState.originY + (event.clientY - panState.startClientY),
-    }))
-  }
-
-  const handlePointerEnd = (event: PointerEvent<HTMLDivElement>) => {
-    if (!panState || event.pointerId !== panState.pointerId) {
-      return
-    }
-    setPanState(null)
   }
 
   return (
     <div className="lite-graph">
       <div className="lite-graph-toolbar">
         <div className="badge-row">
-          <span className="badge">{`${compactGraph.nodes.length} nodes`}</span>
-          <span className="badge">{`${compactGraph.edges.length} edges`}</span>
-          <span className="badge">{depth === 1 ? "1 hop" : "2 hops"}</span>
+          <span className="badge">{`${renderGraph.nodes.length} nodes`}</span>
+          <span className="badge">{`${renderGraph.edges.length} edges`}</span>
+          <span className="badge">{depth === 1 ? "Local" : "Expanded"}</span>
         </div>
         <div className="graph-pill-row">
           <button type="button" className="graph-pill" data-active={depth === 1} onClick={() => setDepth(1)}>
@@ -462,82 +726,20 @@ export function QuartzGraphView({
             type="button"
             className="graph-pill"
             data-active="false"
-            onClick={() => setView({ x: 0, y: 0, scale: 1 })}
+            onClick={() => {
+              viewRef.current = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2, scale: 1 }
+              if (worldRef.current) {
+                worldRef.current.position.set(viewRef.current.x, viewRef.current.y)
+                worldRef.current.scale.set(1)
+              }
+            }}
           >
             Reset view
           </button>
         </div>
       </div>
 
-      <div
-        ref={containerRef}
-        className="lite-graph-shell"
-        onWheel={handleWheel}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerEnd}
-        onPointerLeave={handlePointerEnd}
-        onPointerCancel={handlePointerEnd}
-      >
-        <svg
-          className="lite-graph-canvas"
-          viewBox={`0 0 ${compactGraph.width} ${compactGraph.height}`}
-          role="img"
-          aria-label="Local knowledge graph"
-        >
-          <g transform={`translate(${view.x} ${view.y}) scale(${view.scale})`}>
-            {compactGraph.edges.map((edge, index) => {
-              const source = positionedMap.get(edge.source)
-              const target = positionedMap.get(edge.target)
-              if (!source || !target) {
-                return null
-              }
-
-              const active = activeNodeId && (edge.source === activeNodeId || edge.target === activeNodeId)
-              return (
-                <line
-                  key={`${edge.source}-${edge.target}-${index}`}
-                  className="lite-graph-edge"
-                  data-active={active ? "true" : "false"}
-                  x1={source.x}
-                  y1={source.y}
-                  x2={target.x}
-                  y2={target.y}
-                />
-              )
-            })}
-
-            {compactGraph.nodes.map((node) => {
-              const active = activeNodeId === node.id
-              const neighbor = activeNeighbors.has(node.id)
-              const dimmed = Boolean(activeNodeId) && !active && !neighbor
-
-              return (
-                <g
-                  key={node.id}
-                  data-node-id={node.id}
-                  className="lite-graph-node"
-                  data-active={active ? "true" : "false"}
-                  data-dimmed={dimmed ? "true" : "false"}
-                  transform={`translate(${node.x} ${node.y})`}
-                  onMouseEnter={() => setHoveredNodeId(node.id)}
-                  onMouseLeave={() => setHoveredNodeId(undefined)}
-                  onClick={() => setSelectedNodeId(node.id)}
-                  onDoubleClick={() => {
-                    setFocusNodeId(node.id)
-                    setSelectedNodeId(node.id)
-                  }}
-                >
-                  <circle r={node.radius} fill={node.color} />
-                  <text dy={node.radius + 14} textAnchor="middle">
-                    {node.label.length > 16 ? `${node.label.slice(0, 16)}...` : node.label}
-                  </text>
-                </g>
-              )
-            })}
-          </g>
-        </svg>
-      </div>
+      <div ref={containerRef} className="lite-graph-shell" />
 
       {selectedNode && (
         <div className="lite-graph-meta">
@@ -545,7 +747,7 @@ export function QuartzGraphView({
             <h3>{selectedNode.label}</h3>
             <p>{groupLabels[selectedNode.group] ?? selectedNode.group}</p>
             <div className="badge-row">
-              <span className="badge">{`degree ${compactGraph.degreeMap.get(selectedNode.id) ?? 0}`}</span>
+              <span className="badge">{`degree ${renderGraph.degreeMap.get(selectedNode.id) ?? 0}`}</span>
               <span className="badge">{`weight ${selectedNode.weight}`}</span>
             </div>
             <div className="action-row">
