@@ -81,6 +81,16 @@ export interface KnowledgeNervousSystemSnapshot {
   relations: KnowledgeRelation[]
 }
 
+export interface RelatedKnowledgeRelation extends KnowledgeRelation {
+  direction: "incoming" | "outgoing"
+}
+
+export interface KnowledgeRelatedResult {
+  root: KnowledgeEntity
+  entities: KnowledgeEntity[]
+  relations: RelatedKnowledgeRelation[]
+}
+
 export interface ExplorerNode {
   id: string
   name: string

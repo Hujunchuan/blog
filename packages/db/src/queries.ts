@@ -1,4 +1,4 @@
-import { KnowledgeOverview, ParsedKnowledgeDocument } from "../../core/src"
+import { KnowledgeEntity, KnowledgeOverview, KnowledgeRelatedResult, ParsedKnowledgeDocument, RelatedKnowledgeRelation } from "../../core/src"
 import { createGraph, createTree } from "../../sync/src/projections"
 import { withPgClient } from "./client"
 
@@ -23,8 +23,32 @@ type LatestSyncRunRow = {
   error_message: string | null
 }
 
+type EntityRow = {
+  entity_key: string
+  entity_type: KnowledgeEntity["entityType"]
+  canonical_name: string
+  slug: string | null
+  document_slug: string | null
+  metadata: unknown
+}
+
+type RelationRow = {
+  relation_key: string
+  relation_type: RelatedKnowledgeRelation["relationType"]
+  from_entity_key: string
+  to_entity_key: string
+  evidence_document_slug: string | null
+  weight: number
+  metadata: unknown
+  direction?: RelatedKnowledgeRelation["direction"]
+}
+
 function asStringArray(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []
+}
+
+function asRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 }
 
 function mapDocumentRow(row: DocumentRow, sourceId: string): ParsedKnowledgeDocument {
@@ -40,6 +64,32 @@ function mapDocumentRow(row: DocumentRow, sourceId: string): ParsedKnowledgeDocu
     links: asStringArray(row.links),
     headings: asStringArray(row.headings),
     updatedAt: row.updated_at,
+  }
+}
+
+function mapEntityRow(row: EntityRow, sourceId: string): KnowledgeEntity {
+  return {
+    sourceId,
+    entityKey: row.entity_key,
+    entityType: row.entity_type,
+    canonicalName: row.canonical_name,
+    slug: row.slug ?? undefined,
+    documentSlug: row.document_slug ?? undefined,
+    metadata: asRecord(row.metadata),
+  }
+}
+
+function mapRelationRow(row: RelationRow, sourceId: string): RelatedKnowledgeRelation {
+  return {
+    sourceId,
+    relationKey: row.relation_key,
+    relationType: row.relation_type,
+    fromEntityKey: row.from_entity_key,
+    toEntityKey: row.to_entity_key,
+    evidenceDocumentSlug: row.evidence_document_slug ?? undefined,
+    weight: row.weight,
+    metadata: asRecord(row.metadata),
+    direction: row.direction ?? "outgoing",
   }
 }
 
@@ -295,4 +345,86 @@ export async function getPersistedGraph(sourceId: string) {
 
   const documents = await listPersistedDocuments(sourceId)
   return createGraph(documents)
+}
+
+export async function getPersistedRelated(
+  sourceId: string,
+  input: { entityKey?: string; slug?: string; limit?: number },
+): Promise<KnowledgeRelatedResult | null> {
+  if (!(await hasPersistedSource(sourceId))) {
+    return null
+  }
+
+  const limit = Math.max(1, Math.min(input.limit ?? 24, 100))
+
+  return withPgClient(async (client) => {
+    const rootResult = await client.query<EntityRow>(
+      `
+        SELECT entity_key, entity_type, canonical_name, slug, document_slug, metadata
+        FROM entities
+        WHERE source_id = $1
+          AND (
+            ($2::text IS NOT NULL AND entity_key = $2)
+            OR ($3::text IS NOT NULL AND slug = $3)
+          )
+        ORDER BY
+          CASE
+            WHEN $2::text IS NOT NULL AND entity_key = $2 THEN 0
+            ELSE 1
+          END,
+          entity_key ASC
+        LIMIT 1
+      `,
+      [sourceId, input.entityKey ?? null, input.slug ?? null],
+    )
+
+    const rootRow = rootResult.rows[0]
+    if (!rootRow) {
+      return null
+    }
+
+    const root = mapEntityRow(rootRow, sourceId)
+    const relationsResult = await client.query<RelationRow>(
+      `
+        SELECT
+          relation_key,
+          relation_type,
+          from_entity_key,
+          to_entity_key,
+          evidence_document_slug,
+          weight,
+          metadata,
+          CASE
+            WHEN from_entity_key = $2 THEN 'outgoing'
+            ELSE 'incoming'
+          END AS direction
+        FROM relations
+        WHERE source_id = $1
+          AND (from_entity_key = $2 OR to_entity_key = $2)
+        ORDER BY weight DESC, relation_type ASC, relation_key ASC
+        LIMIT $3
+      `,
+      [sourceId, root.entityKey, limit],
+    )
+
+    const relations = relationsResult.rows.map((row) => mapRelationRow(row, sourceId))
+    const entityKeys = [...new Set([root.entityKey, ...relations.flatMap((relation) => [relation.fromEntityKey, relation.toEntityKey])])]
+
+    const entitiesResult = await client.query<EntityRow>(
+      `
+        SELECT entity_key, entity_type, canonical_name, slug, document_slug, metadata
+        FROM entities
+        WHERE source_id = $1
+          AND entity_key = ANY($2::text[])
+        ORDER BY entity_type ASC, canonical_name ASC, entity_key ASC
+      `,
+      [sourceId, entityKeys],
+    )
+
+    return {
+      root,
+      entities: entitiesResult.rows.map((row) => mapEntityRow(row, sourceId)),
+      relations,
+    }
+  })
 }

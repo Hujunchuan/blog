@@ -4,11 +4,13 @@ import {
   getPersistedExplorerTree,
   getPersistedGraph,
   getPersistedOverview,
+  getPersistedRelated,
   isDatabaseConfigured,
   searchPersistedDocuments,
 } from "@repo/db/index"
-import { KnowledgeSnapshot, KnowledgeSource, ParsedKnowledgeDocument } from "@repo/core/types"
+import { KnowledgeRelatedResult, KnowledgeSnapshot, KnowledgeSource, ParsedKnowledgeDocument } from "@repo/core/types"
 import { MarkdownKnowledgeParser } from "@repo/parser/markdownParser"
+import { buildKnowledgeNervousSystem } from "@repo/sync/nervousSystem"
 import { buildKnowledgeSnapshot } from "@repo/sync/syncKnowledgeBase"
 import { getKnowledgeSourcesConfig, getSnapshotTtlMs } from "./config"
 import { MemorySnapshotRepository } from "./memory-snapshot-repository"
@@ -137,6 +139,62 @@ export async function getGraph(sourceId: string) {
   }
 
   return (await getSnapshot(sourceId)).graph
+}
+
+export async function getRelatedKnowledge(
+  sourceId: string,
+  input: { entityKey?: string; slug?: string; limit?: number },
+): Promise<KnowledgeRelatedResult | null> {
+  const slugCandidates = input.slug ? [...new Set(buildSlugCandidates(input.slug))] : []
+
+  if (input.entityKey) {
+    const persisted = await tryReadPersisted(() =>
+      getPersistedRelated(sourceId, {
+        entityKey: input.entityKey,
+        limit: input.limit,
+      }),
+    )
+    if (persisted) {
+      return persisted
+    }
+  }
+
+  for (const candidate of slugCandidates) {
+    const persisted = await tryReadPersisted(() =>
+      getPersistedRelated(sourceId, {
+        slug: candidate,
+        limit: input.limit,
+      }),
+    )
+    if (persisted) {
+      return persisted
+    }
+  }
+
+  const nervousSystem = buildKnowledgeNervousSystem((await getSnapshot(sourceId)).documents)
+  const root =
+    nervousSystem.entities.find((entity) => input.entityKey && entity.entityKey === input.entityKey) ??
+    nervousSystem.entities.find((entity) => entity.slug && slugCandidates.includes(entity.slug))
+
+  if (!root) {
+    return null
+  }
+
+  const relations = nervousSystem.relations
+    .filter((relation) => relation.fromEntityKey === root.entityKey || relation.toEntityKey === root.entityKey)
+    .slice(0, Math.max(1, Math.min(input.limit ?? 24, 100)))
+    .map((relation) => ({
+      ...relation,
+      direction: relation.fromEntityKey === root.entityKey ? ("outgoing" as const) : ("incoming" as const),
+    }))
+
+  const entityKeys = new Set([root.entityKey, ...relations.flatMap((relation) => [relation.fromEntityKey, relation.toEntityKey])])
+
+  return {
+    root,
+    entities: nervousSystem.entities.filter((entity) => entityKeys.has(entity.entityKey)),
+    relations,
+  }
 }
 
 export async function searchDocuments(sourceId: string, query: string) {
