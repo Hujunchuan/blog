@@ -751,6 +751,10 @@ a:hover {
   cursor: grab;
 }
 
+.lite-graph-shell-global {
+  min-height: 820px;
+}
+
 .lite-graph-canvas {
   width: 100%;
   min-height: 560px;
@@ -804,6 +808,40 @@ a:hover {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+}
+
+.lite-graph-global .lite-graph-meta {
+  grid-template-columns: 1.1fr 1.4fr;
+}
+
+.graph-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.graph-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(25, 32, 40, 0.48);
+  cursor: pointer;
+}
+
+.graph-overlay-panel {
+  position: relative;
+  z-index: 1;
+  width: min(1480px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 22px;
+  border-radius: 24px;
+  border: 1px solid rgba(32, 42, 52, 0.14);
+  background: rgba(246, 239, 226, 0.98);
+  box-shadow: 0 28px 80px rgba(25, 32, 40, 0.22);
 }
 
 .badge-row {
@@ -1154,5 +1192,20 @@ a:hover {
 
   .quartz-side-column {
     position: initial;
+  }
+
+  .graph-overlay {
+    padding: 12px;
+  }
+
+  .graph-overlay-panel {
+    width: min(100vw - 24px, 100%);
+    max-height: calc(100vh - 24px);
+    padding: 14px;
+  }
+
+  .lite-graph-global .lite-graph-meta,
+  .lite-graph-meta {
+    grid-template-columns: 1fr;
   }
 }

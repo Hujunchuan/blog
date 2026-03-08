@@ -24,10 +24,13 @@ import {
 import { KnowledgeGraphEdge, KnowledgeGraphMode, KnowledgeGraphNode } from "@repo/core/types"
 
 const palette = ["#6b7c88", "#b7793f", "#62824b", "#8b6075", "#4d7190", "#7d6948"]
-const CANVAS_WIDTH = 960
-const CANVAS_HEIGHT = 560
+const LOCAL_CANVAS_WIDTH = 960
+const LOCAL_CANVAS_HEIGHT = 560
+const GLOBAL_CANVAS_WIDTH = 1400
+const GLOBAL_CANVAS_HEIGHT = 820
 
 type Depth = 1 | 2
+type GraphVariant = "local" | "global"
 
 type GraphNodeData = KnowledgeGraphNode &
   SimulationNodeDatum & {
@@ -186,6 +189,7 @@ function buildRenderGraph(
   edges: KnowledgeGraphEdge[],
   focusNodeId: string,
   depth: Depth,
+  variant: GraphVariant,
 ) {
   const nodeIds = new Set(nodes.map((node) => node.id))
   const adjacency = buildAdjacency(edges, nodeIds)
@@ -216,7 +220,7 @@ function buildRenderGraph(
     return left.label.localeCompare(right.label, "zh-CN")
   })
 
-  const maxNodeCount = depth === 1 ? 28 : 56
+  const maxNodeCount = variant === "global" ? (depth === 1 ? 64 : 120) : depth === 1 ? 28 : 56
   const keptIds = new Set(rankedNodes.slice(0, maxNodeCount).map((node) => node.id))
   keptIds.add(focusNodeId)
 
@@ -241,7 +245,7 @@ function buildRenderGraph(
       }
       return edgeWeight(right) - edgeWeight(left)
     })
-    .slice(0, depth === 1 ? 72 : 132)
+    .slice(0, variant === "global" ? (depth === 1 ? 180 : 320) : depth === 1 ? 72 : 132)
 
   const nodeMap = new Map(keptNodes.map((node) => [node.id, node]))
   const simulationEdges: GraphLinkData[] = keptEdges.flatMap((edge) => {
@@ -289,6 +293,10 @@ export function QuartzGraphView({
   mode,
   graph,
   initialFocus,
+  variant = "local",
+  onFocusChange,
+  onOpenGlobal,
+  onCloseGlobal,
 }: {
   sourceId: string
   mode: KnowledgeGraphMode
@@ -297,7 +305,13 @@ export function QuartzGraphView({
     edges: KnowledgeGraphEdge[]
   }
   initialFocus?: string
+  variant?: GraphVariant
+  onFocusChange?: (nodeId: string | undefined) => void
+  onOpenGlobal?: () => void
+  onCloseGlobal?: () => void
 }) {
+  const canvasWidth = variant === "global" ? GLOBAL_CANVAS_WIDTH : LOCAL_CANVAS_WIDTH
+  const canvasHeight = variant === "global" ? GLOBAL_CANVAS_HEIGHT : LOCAL_CANVAS_HEIGHT
   const containerRef = useRef<HTMLDivElement | null>(null)
   const appRef = useRef<Application | null>(null)
   const worldRef = useRef<Container | null>(null)
@@ -314,7 +328,7 @@ export function QuartzGraphView({
   const selectedNodeIdRef = useRef<string | undefined>(undefined)
   const dragNodeIdRef = useRef<string | undefined>(undefined)
   const lastTapRef = useRef<{ nodeId: string; at: number } | null>(null)
-  const viewRef = useRef<ViewTransform>({ x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2, scale: 1 })
+  const viewRef = useRef<ViewTransform>({ x: canvasWidth / 2, y: canvasHeight / 2, scale: 1 })
   const panRef = useRef<{
     active: boolean
     pointerId: number
@@ -324,7 +338,7 @@ export function QuartzGraphView({
     originY: number
   } | null>(null)
   const applyHighlightRef = useRef<() => void>(() => {})
-  const [depth, setDepth] = useState<Depth>(1)
+  const [depth, setDepth] = useState<Depth>(variant === "global" ? 2 : 1)
   const defaultFocusNodeId = useMemo(() => {
     if (initialFocus && graph.nodes.some((node) => node.id === initialFocus)) {
       return initialFocus
@@ -353,6 +367,23 @@ export function QuartzGraphView({
   }, [selectedNodeId])
 
   useEffect(() => {
+    setDepth(variant === "global" ? 2 : 1)
+  }, [variant])
+
+  useEffect(() => {
+    if (!initialFocus || !graph.nodes.some((node) => node.id === initialFocus)) {
+      return
+    }
+
+    setFocusNodeId((current) => (current === initialFocus ? current : initialFocus))
+    setSelectedNodeId((current) => (current === initialFocus ? current : initialFocus))
+  }, [graph.nodes, initialFocus])
+
+  useEffect(() => {
+    onFocusChange?.(focusNodeId)
+  }, [focusNodeId, onFocusChange])
+
+  useEffect(() => {
     if (!focusNodeId && defaultFocusNodeId) {
       setFocusNodeId(defaultFocusNodeId)
     }
@@ -365,8 +396,8 @@ export function QuartzGraphView({
     if (!focusNodeId) {
       return undefined
     }
-    return buildRenderGraph(graph.nodes, graph.edges, focusNodeId, depth)
-  }, [depth, focusNodeId, graph.edges, graph.nodes])
+    return buildRenderGraph(graph.nodes, graph.edges, focusNodeId, depth, variant)
+  }, [depth, focusNodeId, graph.edges, graph.nodes, variant])
 
   const selectedNode =
     renderGraph?.nodes.find((node) => node.id === selectedNodeId) ??
@@ -398,8 +429,8 @@ export function QuartzGraphView({
     const init = async () => {
       const app = new Application()
       await app.init({
-        width: CANVAS_WIDTH,
-        height: CANVAS_HEIGHT,
+        width: canvasWidth,
+        height: canvasHeight,
         antialias: true,
         autoDensity: true,
         autoStart: false,
@@ -418,7 +449,7 @@ export function QuartzGraphView({
 
       const world = new Container()
       const background = new Graphics()
-      background.rect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+      background.rect(0, 0, canvasWidth, canvasHeight)
       background.fill({ color: 0xffffff, alpha: 0.001 })
       background.eventMode = "static"
 
@@ -442,8 +473,8 @@ export function QuartzGraphView({
         event.stopPropagation()
 
         const rect = app.canvas.getBoundingClientRect()
-        const pointX = ((event.clientX - rect.left) / rect.width) * CANVAS_WIDTH
-        const pointY = ((event.clientY - rect.top) / rect.height) * CANVAS_HEIGHT
+        const pointX = ((event.clientX - rect.left) / rect.width) * canvasWidth
+        const pointY = ((event.clientY - rect.top) / rect.height) * canvasHeight
         const current = viewRef.current
         const nextScale = clampScale(current.scale * (event.deltaY < 0 ? 1.08 : 0.92))
         const worldX = (pointX - current.x) / current.scale
@@ -535,7 +566,7 @@ export function QuartzGraphView({
       nodesLayerRef.current = null
       labelsLayerRef.current = null
     }
-  }, [])
+  }, [canvasHeight, canvasWidth])
 
   useEffect(() => {
     const app = appRef.current
@@ -558,7 +589,7 @@ export function QuartzGraphView({
     nodesLayer.removeChildren()
     labelsLayer.removeChildren()
 
-    viewRef.current = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2, scale: 1 }
+    viewRef.current = { x: canvasWidth / 2, y: canvasHeight / 2, scale: 1 }
     world.position.set(viewRef.current.x, viewRef.current.y)
     world.scale.set(1)
 
@@ -726,19 +757,20 @@ export function QuartzGraphView({
       simulation.on("end", null)
       simulation.stop()
     }
-  }, [focusNodeId, renderGraph])
+  }, [canvasHeight, canvasWidth, focusNodeId, renderGraph])
 
   if (!renderGraph || !focusNodeId) {
     return <div className="empty-state">No graph data available.</div>
   }
 
   return (
-    <div className="lite-graph">
+    <div className={`lite-graph ${variant === "global" ? "lite-graph-global" : ""}`}>
       <div className="lite-graph-toolbar">
         <div className="badge-row">
           <span className="badge">{`${renderGraph.nodes.length} nodes`}</span>
           <span className="badge">{`${renderGraph.edges.length} edges`}</span>
           <span className="badge">{depth === 1 ? "Local" : "Expanded"}</span>
+          <span className="badge">{variant === "global" ? "Global view" : "Local view"}</span>
         </div>
         <div className="graph-pill-row">
           <button type="button" className="graph-pill" data-active={depth === 1} onClick={() => setDepth(1)}>
@@ -752,7 +784,7 @@ export function QuartzGraphView({
             className="graph-pill"
             data-active="false"
             onClick={() => {
-              viewRef.current = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2, scale: 1 }
+              viewRef.current = { x: canvasWidth / 2, y: canvasHeight / 2, scale: 1 }
               if (worldRef.current) {
                 worldRef.current.position.set(viewRef.current.x, viewRef.current.y)
                 worldRef.current.scale.set(1)
@@ -762,10 +794,20 @@ export function QuartzGraphView({
           >
             Reset view
           </button>
+          {variant === "local" && onOpenGlobal && (
+            <button type="button" className="graph-pill" data-active="false" onClick={onOpenGlobal}>
+              Open global graph
+            </button>
+          )}
+          {variant === "global" && onCloseGlobal && (
+            <button type="button" className="graph-pill" data-active="false" onClick={onCloseGlobal}>
+              Close
+            </button>
+          )}
         </div>
       </div>
 
-      <div ref={containerRef} className="lite-graph-shell" />
+      <div ref={containerRef} className={`lite-graph-shell ${variant === "global" ? "lite-graph-shell-global" : ""}`} />
 
       {selectedNode && (
         <div className="lite-graph-meta">
