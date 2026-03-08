@@ -288,7 +288,7 @@ function buildVisibleNodeIds(
   activeGroups: string[],
   scope: GraphScope,
   localDepth: LocalDepth,
-  selectedNodeId: string | undefined,
+  anchorId: string | undefined,
 ) {
   const activeGroupSet = new Set(activeGroups)
   const groupScopedNodes = nodes.filter((node) => activeGroupSet.has(node.group))
@@ -299,8 +299,8 @@ function buildVisibleNodeIds(
   }
 
   const adjacency = buildAdjacency(edges, groupScopedIds)
-  const anchorId = selectedNodeId ?? focus ?? groupScopedNodes[0]?.id
-  const localIds = scope === "local" ? collectNeighborhood(anchorId, adjacency, localDepth) : undefined
+  const scopedAnchorId = anchorId ?? focus ?? groupScopedNodes[0]?.id
+  const localIds = scope === "local" ? collectNeighborhood(scopedAnchorId, adjacency, localDepth) : undefined
   const scopedNodes = localIds ? groupScopedNodes.filter((node) => localIds.has(node.id)) : groupScopedNodes
 
   const matched = buildMatchedNodeIds(scopedNodes, query, focus)
@@ -330,6 +330,107 @@ function buildVisibleNodeIds(
   }
 
   return new Set(scopedNodes.map((node) => node.id))
+}
+
+function limitVisibleNodeIds(
+  nodes: KnowledgeGraphNode[],
+  edges: KnowledgeGraphEdge[],
+  scope: GraphScope,
+  mode: KnowledgeGraphMode,
+  anchorId: string | undefined,
+  pinnedNodeIds: string[],
+) {
+  const maxNodeCount = scope === "local" ? (mode === "knowledge" ? 96 : 80) : mode === "knowledge" ? 150 : 120
+  if (nodes.length <= maxNodeCount) {
+    return new Set(nodes.map((node) => node.id))
+  }
+
+  const visibleNodeIds = new Set(nodes.map((node) => node.id))
+  const adjacency = buildAdjacency(edges, visibleNodeIds)
+  const depthMap = scope === "local" ? buildDepthMap(anchorId, adjacency, 3) : new Map<string, number>()
+  const degreeMap = buildDegreeMap(edges)
+  const protectedIds = new Set(
+    [anchorId, ...pinnedNodeIds].filter((nodeId): nodeId is string => Boolean(nodeId && visibleNodeIds.has(nodeId))),
+  )
+
+  const rankedNodes = [...nodes].sort((a, b) => {
+    const aProtected = protectedIds.has(a.id) ? 1 : 0
+    const bProtected = protectedIds.has(b.id) ? 1 : 0
+    if (aProtected !== bProtected) {
+      return bProtected - aProtected
+    }
+
+    const aDepth = depthMap.get(a.id) ?? Number.MAX_SAFE_INTEGER
+    const bDepth = depthMap.get(b.id) ?? Number.MAX_SAFE_INTEGER
+    if (aDepth !== bDepth) {
+      return aDepth - bDepth
+    }
+
+    const degreeDelta = (degreeMap.get(b.id) ?? 0) - (degreeMap.get(a.id) ?? 0)
+    if (degreeDelta !== 0) {
+      return degreeDelta
+    }
+
+    if (a.weight !== b.weight) {
+      return b.weight - a.weight
+    }
+
+    return a.label.localeCompare(b.label, "zh-CN")
+  })
+
+  const keptIds = new Set(rankedNodes.slice(0, maxNodeCount).map((node) => node.id))
+  protectedIds.forEach((nodeId) => keptIds.add(nodeId))
+
+  if (anchorId && adjacency.has(anchorId)) {
+    const anchorNeighbors = [...(adjacency.get(anchorId) ?? [])].sort((left, right) => {
+      const leftNode = nodes.find((node) => node.id === left)
+      const rightNode = nodes.find((node) => node.id === right)
+      const degreeDelta = (degreeMap.get(right) ?? 0) - (degreeMap.get(left) ?? 0)
+      if (degreeDelta !== 0) {
+        return degreeDelta
+      }
+
+      return (rightNode?.weight ?? 0) - (leftNode?.weight ?? 0)
+    })
+
+    for (const neighborId of anchorNeighbors) {
+      if (keptIds.size >= maxNodeCount + protectedIds.size) {
+        break
+      }
+      keptIds.add(neighborId)
+    }
+  }
+
+  return keptIds
+}
+
+function limitVisibleEdges(
+  edges: KnowledgeGraphEdge[],
+  scope: GraphScope,
+  mode: KnowledgeGraphMode,
+  anchorId: string | undefined,
+) {
+  const maxEdgeCount = scope === "local" ? (mode === "knowledge" ? 220 : 180) : mode === "knowledge" ? 320 : 240
+  if (edges.length <= maxEdgeCount) {
+    return edges
+  }
+
+  return [...edges]
+    .sort((left, right) => {
+      const leftAnchored = anchorId && (left.source === anchorId || left.target === anchorId) ? 1 : 0
+      const rightAnchored = anchorId && (right.source === anchorId || right.target === anchorId) ? 1 : 0
+      if (leftAnchored !== rightAnchored) {
+        return rightAnchored - leftAnchored
+      }
+
+      const weightDelta = edgeWeight(right) - edgeWeight(left)
+      if (weightDelta !== 0) {
+        return weightDelta
+      }
+
+      return edgeRelationTypes(right).length - edgeRelationTypes(left).length
+    })
+    .slice(0, maxEdgeCount)
 }
 
 function layoutGlobalNodes(nodes: KnowledgeGraphNode[]) {
@@ -512,11 +613,18 @@ export function KnowledgeGraphView({
     () => [...new Set(graph.edges.flatMap((edge) => edgeRelationTypes(edge)))].sort((a, b) => a.localeCompare(b, "en")),
     [graph.edges],
   )
+  const defaultNodeId = useMemo(() => {
+    const sortedNodes = [...graph.nodes].sort(
+      (a, b) => b.weight - a.weight || a.label.localeCompare(b.label, "zh-CN"),
+    )
+    return initialFocus ?? sortedNodes[0]?.id
+  }, [graph.nodes, initialFocus])
   const [query, setQuery] = useState("")
-  const [scope, setScope] = useState<GraphScope>("all")
+  const [scope, setScope] = useState<GraphScope>("local")
   const [localDepth, setLocalDepth] = useState<LocalDepth>(1)
   const [collapseMode, setCollapseMode] = useState<CollapseMode>("none")
-  const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(initialFocus)
+  const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(defaultNodeId)
+  const [scopeAnchorId, setScopeAnchorId] = useState<string | undefined>(defaultNodeId)
   const [activeGroups, setActiveGroups] = useState<string[]>(allGroups)
   const [activeRelationTypes, setActiveRelationTypes] = useState<string[]>(allRelationTypes)
   const [pinnedNodeIds, setPinnedNodeIds] = useState<string[]>([])
@@ -561,17 +669,40 @@ export function KnowledgeGraphView({
             activeGroups,
             scope,
             localDepth,
-            selectedNodeId,
+            scopeAnchorId,
           )
 
-    const baseVisibleNodes = graph.nodes.filter((node) => baseVisibleIds.has(node.id))
-    const baseVisibleNodeIdSet = new Set(baseVisibleNodes.map((node) => node.id))
-    const baseVisibleEdges = relationScopedEdges.filter(
-      (edge) => baseVisibleNodeIdSet.has(edge.source) && baseVisibleNodeIdSet.has(edge.target),
+    const scopedVisibleNodes = graph.nodes.filter((node) => baseVisibleIds.has(node.id))
+    const scopedVisibleNodeIdSet = new Set(scopedVisibleNodes.map((node) => node.id))
+    const scopedVisibleEdges = relationScopedEdges.filter(
+      (edge) => scopedVisibleNodeIdSet.has(edge.source) && scopedVisibleNodeIdSet.has(edge.target),
+    )
+    const limitedVisibleIdSet =
+      deferredQuery.trim().length > 0
+        ? scopedVisibleNodeIdSet
+        : limitVisibleNodeIds(
+            scopedVisibleNodes,
+            scopedVisibleEdges,
+            scope,
+            mode,
+            scopeAnchorId ?? initialFocus ?? defaultNodeId,
+            pinnedNodeIds,
+          )
+    const baseVisibleNodes = scopedVisibleNodes.filter((node) => limitedVisibleIdSet.has(node.id))
+    const limitedEdges = scopedVisibleEdges.filter(
+      (edge) => limitedVisibleIdSet.has(edge.source) && limitedVisibleIdSet.has(edge.target),
+    )
+    const baseVisibleEdges = limitVisibleEdges(
+      limitedEdges,
+      scope,
+      mode,
+      scopeAnchorId ?? initialFocus ?? defaultNodeId,
     )
     const baseDegreeMap = buildDegreeMap(baseVisibleEdges)
     const protectedNodeIds = new Set(
-      [selectedNodeId, initialFocus, ...pinnedNodeIds].filter((nodeId): nodeId is string => Boolean(nodeId)),
+      [selectedNodeId, scopeAnchorId, initialFocus, ...pinnedNodeIds].filter(
+        (nodeId): nodeId is string => Boolean(nodeId),
+      ),
     )
     const collapsedNodeIds = new Set(
       baseVisibleNodes
@@ -597,9 +728,11 @@ export function KnowledgeGraphView({
     const degreeMap = buildDegreeMap(visibleEdges)
     const selectedNode =
       visibleNodes.find((node) => node.id === selectedNodeId) ??
+      visibleNodes.find((node) => node.id === scopeAnchorId) ??
       visibleNodes.find((node) => node.id === initialFocus) ??
+      visibleNodes.find((node) => node.id === defaultNodeId) ??
       visibleNodes[0]
-    const selectedAnchorId = selectedNode?.id ?? initialFocus
+    const selectedAnchorId = scopeAnchorId ?? selectedNode?.id ?? initialFocus ?? defaultNodeId
     const baseLayout = layoutNodes(visibleNodes, visibleEdges, scope, selectedAnchorId)
     const layoutNodesWithOverrides = baseLayout.nodes.map((node) => {
       const override = nodeOverrides[node.id]
@@ -686,10 +819,13 @@ export function KnowledgeGraphView({
     graph.nodes,
     initialFocus,
     localDepth,
+    mode,
     nodeOverrides,
     pinnedNodeIds,
     scope,
+    scopeAnchorId,
     selectedNodeId,
+    defaultNodeId,
   ])
 
   const layoutPositionMap = useMemo(
@@ -802,11 +938,31 @@ export function KnowledgeGraphView({
     graphEngineRef.current?.resetCamera()
   }
 
+  const selectNode = (nodeId: string | undefined) => {
+    setSelectedNodeId(nodeId)
+  }
+
+  const focusNeighborhood = (nodeId: string, depth: LocalDepth = 2) => {
+    setScope("local")
+    setLocalDepth(depth)
+    setScopeAnchorId(nodeId)
+    setSelectedNodeId(nodeId)
+  }
+
   useEffect(() => {
     if (selectedNodeId) {
       graphEngineRef.current?.focusNode(selectedNodeId)
     }
   }, [selectedNodeId])
+
+  useEffect(() => {
+    if (!selectedNodeId && defaultNodeId) {
+      setSelectedNodeId(defaultNodeId)
+    }
+    if (!scopeAnchorId && defaultNodeId) {
+      setScopeAnchorId(defaultNodeId)
+    }
+  }, [defaultNodeId, scopeAnchorId, selectedNodeId])
 
   return (
     <div className="graph-workspace">
@@ -977,11 +1133,7 @@ export function KnowledgeGraphView({
                   type="button"
                   className="graph-pill"
                   data-active={scope === "local" && localDepth === 2}
-                  onClick={() => {
-                    setScope("local")
-                    setLocalDepth(2)
-                    setSelectedNodeId(selectedNode.id)
-                  }}
+                  onClick={() => focusNeighborhood(selectedNode.id, 2)}
                 >
                   展开当前节点
                 </button>
@@ -1002,7 +1154,7 @@ export function KnowledgeGraphView({
               edges={visibleEdges}
               selectedNodeId={selectedNodeId}
               pinnedNodeIds={pinnedNodeIds}
-              onSelectNode={(nodeId) => setSelectedNodeId(nodeId)}
+              onSelectNode={(nodeId) => selectNode(nodeId)}
               onPinNode={(nodeId, position) => pinNodeAtPosition(nodeId, position)}
               onUnpinNode={(nodeId) => resetNodePosition(nodeId)}
             />
@@ -1055,7 +1207,11 @@ export function KnowledgeGraphView({
                       {mode === "knowledge" ? "打开知识分析" : "打开文档"}
                     </Link>
                   )}
-                  <button type="button" className="graph-inline-button" onClick={() => setScope("local")}>
+                  <button
+                    type="button"
+                    className="graph-inline-button"
+                    onClick={() => focusNeighborhood(selectedNode.id, 1)}
+                  >
                     只看这个节点的邻域
                   </button>
                 </div>
@@ -1170,7 +1326,7 @@ export function KnowledgeGraphView({
                           <button
                             type="button"
                             className="graph-inline-button"
-                            onClick={() => setSelectedNodeId(connection.peer.id)}
+                            onClick={() => selectNode(connection.peer.id)}
                           >
                             聚焦节点
                           </button>

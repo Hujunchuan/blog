@@ -3,8 +3,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react"
 import Graph from "graphology"
 import Sigma from "sigma"
-import type { EdgeProgramType } from "sigma/rendering"
-import EdgeCurveProgram from "@sigma/edge-curve"
 import {
   forceCenter,
   forceCollide,
@@ -165,16 +163,14 @@ export const KnowledgeGraphEngine = forwardRef<
   const graphRef = useRef<Graph<GraphNodeAttributes, GraphEdgeAttributes, GraphAttributes> | null>(null)
   const simulationRef = useRef<Simulation<ForceGraphNode, ForceGraphLink> | null>(null)
   const refreshFrameRef = useRef<number | null>(null)
-  const highlightFrameRef = useRef<number | null>(null)
+  const cooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const draggedNodeRef = useRef<string | null>(null)
   const hoveredNodeRef = useRef<string | null>(null)
   const selectedNodeRef = useRef<string | null>(selectedNodeId ?? null)
   const nodeMapRef = useRef<Map<string, ForceGraphNode>>(new Map())
   const pinnedSetRef = useRef<Set<string>>(new Set(pinnedNodeIds))
   const nodeIntensityRef = useRef<Map<string, number>>(new Map())
-  const nodeTargetRef = useRef<Map<string, number>>(new Map())
   const edgeIntensityRef = useRef<Map<string, number>>(new Map())
-  const edgeTargetRef = useRef<Map<string, number>>(new Map())
   const focusRequestRef = useRef<string | null>(null)
   const onSelectNodeRef = useRef(onSelectNode)
   const onPinNodeRef = useRef(onPinNode)
@@ -197,6 +193,18 @@ export const KnowledgeGraphEngine = forwardRef<
     })
   }
 
+  const scheduleSimulationCooldown = (delay = 900) => {
+    if (cooldownTimerRef.current) {
+      clearTimeout(cooldownTimerRef.current)
+    }
+
+    cooldownTimerRef.current = setTimeout(() => {
+      simulationRef.current?.alphaTarget(0)
+      simulationRef.current?.stop()
+      cooldownTimerRef.current = null
+    }, delay)
+  }
+
   const computeInteractionTargets = () => {
     const graph = graphRef.current
     if (!graph) {
@@ -214,96 +222,50 @@ export const KnowledgeGraphEngine = forwardRef<
       })
     }
 
-    const nextNodeTargets = new Map<string, number>()
     graph.forEachNode((node) => {
       if (selectedNode) {
         if (node === selectedNode) {
-          nextNodeTargets.set(node, 1)
+          nodeIntensityRef.current.set(node, 1)
         } else if (neighborSet.has(node)) {
-          nextNodeTargets.set(node, 0.72)
+          nodeIntensityRef.current.set(node, 0.74)
         } else {
-          nextNodeTargets.set(node, 0.12)
+          nodeIntensityRef.current.set(node, 0.1)
         }
         return
       }
 
       if (hoveredNode) {
         if (node === hoveredNode) {
-          nextNodeTargets.set(node, 0.96)
+          nodeIntensityRef.current.set(node, 0.96)
         } else if (neighborSet.has(node)) {
-          nextNodeTargets.set(node, 0.62)
+          nodeIntensityRef.current.set(node, 0.64)
         } else {
-          nextNodeTargets.set(node, 0.18)
+          nodeIntensityRef.current.set(node, 0.16)
         }
         return
       }
 
-      nextNodeTargets.set(node, 0.56)
+      nodeIntensityRef.current.set(node, 0.46)
     })
 
-    const nextEdgeTargets = new Map<string, number>()
     graph.forEachEdge((edge, _attributes, source, target) => {
       if (selectedNode) {
-        nextEdgeTargets.set(edge, source === selectedNode || target === selectedNode ? 1 : 0.08)
+        edgeIntensityRef.current.set(edge, source === selectedNode || target === selectedNode ? 0.94 : 0.06)
         return
       }
 
       if (hoveredNode) {
-        nextEdgeTargets.set(edge, source === hoveredNode || target === hoveredNode ? 0.88 : 0.12)
+        edgeIntensityRef.current.set(edge, source === hoveredNode || target === hoveredNode ? 0.82 : 0.1)
         return
       }
 
-      nextEdgeTargets.set(edge, 0.3)
+      edgeIntensityRef.current.set(edge, 0.22)
     })
-
-    nodeTargetRef.current = nextNodeTargets
-    edgeTargetRef.current = nextEdgeTargets
   }
 
-  const animateHighlights = () => {
-    const graph = graphRef.current
-    if (!graph) {
-      highlightFrameRef.current = null
-      return
-    }
-
-    let animating = false
-
-    graph.forEachNode((node) => {
-      const current = nodeIntensityRef.current.get(node) ?? 0.56
-      const target = nodeTargetRef.current.get(node) ?? 0.56
-      const next = current + (target - current) * 0.22
-      if (Math.abs(next - target) > 0.015) {
-        animating = true
-      }
-      nodeIntensityRef.current.set(node, next)
-    })
-
-    graph.forEachEdge((edge) => {
-      const current = edgeIntensityRef.current.get(edge) ?? 0.3
-      const target = edgeTargetRef.current.get(edge) ?? 0.3
-      const next = current + (target - current) * 0.24
-      if (Math.abs(next - target) > 0.02) {
-        animating = true
-      }
-      edgeIntensityRef.current.set(edge, next)
-    })
-
-    scheduleRefresh(true)
-
-    if (animating) {
-      highlightFrameRef.current = requestAnimationFrame(animateHighlights)
-    } else {
-      highlightFrameRef.current = null
-    }
-  }
-
-  const scheduleHighlightAnimation = () => {
+  const applyInteractionState = () => {
     computeInteractionTargets()
-    if (highlightFrameRef.current !== null) {
-      return
-    }
-    highlightFrameRef.current = requestAnimationFrame(animateHighlights)
+    scheduleRefresh(true)
   }
 
   const focusNode = (nodeId: string) => {
@@ -353,21 +315,12 @@ export const KnowledgeGraphEngine = forwardRef<
     const sigma = new Sigma<GraphNodeAttributes, GraphEdgeAttributes, GraphAttributes>(graph, containerRef.current, {
       renderLabels: true,
       labelFont: "IBM Plex Sans, Noto Sans SC, sans-serif",
-      labelSize: 12,
+      labelSize: 11,
       labelWeight: "500",
       labelColor: { color: "#f4efe6" },
-      labelRenderedSizeThreshold: 10,
+      labelRenderedSizeThreshold: 18,
       defaultNodeColor: "#7c8f8d",
       defaultEdgeColor: "#41595b",
-      defaultEdgeType: "curved",
-      edgeProgramClasses: {
-        curved:
-          EdgeCurveProgram as unknown as EdgeProgramType<
-            GraphNodeAttributes,
-            GraphEdgeAttributes,
-            GraphAttributes
-          >,
-      },
       hideEdgesOnMove: false,
       minCameraRatio: 0.08,
       maxCameraRatio: 4,
@@ -376,25 +329,32 @@ export const KnowledgeGraphEngine = forwardRef<
         const intensity = nodeIntensityRef.current.get(node) ?? 0.56
         const hovered = hoveredNodeRef.current === node
         const selected = selectedNodeRef.current === node
-        const color = hovered || selected ? brightenColor(data.originalColor, selected ? 1.7 : 1.45) : dimColor(data.originalColor, 0.18 + intensity * 0.82)
+        const pinned = pinnedSetRef.current.has(node)
+        const color =
+          hovered || selected || pinned
+            ? brightenColor(data.originalColor, selected ? 1.58 : 1.34)
+            : dimColor(data.originalColor, 0.14 + intensity * 0.76)
 
         return {
           ...data,
           color,
-          size: data.originalSize * (0.58 + intensity * 0.9 + (hovered ? 0.12 : 0) + (selected ? 0.22 : 0)),
+          size: data.originalSize * (0.54 + intensity * 0.72 + (hovered ? 0.08 : 0) + (selected ? 0.16 : 0)),
           zIndex: Math.round(intensity * 10) + (hovered ? 6 : 0) + (selected ? 10 : 0),
-          forceLabel: hovered || selected || intensity > 0.72,
+          forceLabel: hovered || selected || pinned,
         }
       },
       edgeReducer: (edge, data) => {
-        const intensity = edgeIntensityRef.current.get(edge) ?? 0.3
-        const color = intensity > 0.72 ? brightenColor(data.originalColor, 1.45) : dimColor(data.originalColor, 0.06 + intensity * 0.64)
+        const intensity = edgeIntensityRef.current.get(edge) ?? 0.22
+        const color =
+          intensity > 0.72
+            ? brightenColor(data.originalColor, 1.24)
+            : dimColor(data.originalColor, 0.05 + intensity * 0.54)
 
         return {
           ...data,
-          hidden: intensity < 0.05,
+          hidden: intensity < 0.04,
           color,
-          size: Math.max(0.35, data.originalSize * (0.22 + intensity * 1.9)),
+          size: Math.max(0.3, data.originalSize * (0.18 + intensity * 1.45)),
           zIndex: Math.round(intensity * 10),
         }
       },
@@ -454,12 +414,13 @@ export const KnowledgeGraphEngine = forwardRef<
       draggedNodeRef.current = null
       containerRef.current?.style.setProperty("cursor", "grab")
       scheduleRefresh(true)
+      scheduleSimulationCooldown(700)
     }
 
     sigma.on("clickNode", ({ node }: SigmaNodePayload) => {
       selectedNodeRef.current = node
       onSelectNodeRef.current(node)
-      scheduleHighlightAnimation()
+      applyInteractionState()
       focusNode(node)
     })
 
@@ -493,12 +454,12 @@ export const KnowledgeGraphEngine = forwardRef<
     sigma.on("clickStage", () => {
       selectedNodeRef.current = null
       onSelectNodeRef.current(undefined)
-      scheduleHighlightAnimation()
+      applyInteractionState()
     })
 
     sigma.on("enterNode", ({ node }: SigmaNodePayload) => {
       hoveredNodeRef.current = node
-      scheduleHighlightAnimation()
+      applyInteractionState()
       if (containerRef.current) {
         containerRef.current.style.cursor = "pointer"
       }
@@ -506,7 +467,7 @@ export const KnowledgeGraphEngine = forwardRef<
 
     sigma.on("leaveNode", () => {
       hoveredNodeRef.current = null
-      scheduleHighlightAnimation()
+      applyInteractionState()
       if (containerRef.current) {
         containerRef.current.style.cursor = "grab"
       }
@@ -525,7 +486,7 @@ export const KnowledgeGraphEngine = forwardRef<
       forceNode.fy = forceNode.y ?? forceNode.anchorY
       selectedNodeRef.current = node
       onSelectNodeRef.current(node)
-      scheduleHighlightAnimation()
+      applyInteractionState()
       containerRef.current?.style.setProperty("cursor", "grabbing")
       simulationRef.current?.alpha(0.38).restart()
     })
@@ -549,8 +510,8 @@ export const KnowledgeGraphEngine = forwardRef<
       if (refreshFrameRef.current !== null) {
         cancelAnimationFrame(refreshFrameRef.current)
       }
-      if (highlightFrameRef.current !== null) {
-        cancelAnimationFrame(highlightFrameRef.current)
+      if (cooldownTimerRef.current) {
+        clearTimeout(cooldownTimerRef.current)
       }
       simulationRef.current?.stop()
       sigma.kill()
@@ -564,7 +525,7 @@ export const KnowledgeGraphEngine = forwardRef<
     if (selectedNodeId) {
       focusRequestRef.current = selectedNodeId
     }
-    scheduleHighlightAnimation()
+    applyInteractionState()
   }, [selectedNodeId])
 
   useEffect(() => {
@@ -584,6 +545,7 @@ export const KnowledgeGraphEngine = forwardRef<
     }
     simulationRef.current?.alpha(0.22).restart()
     scheduleRefresh(true)
+    scheduleSimulationCooldown(500)
   }, [height, pinnedNodeIds, width])
 
   useEffect(() => {
@@ -704,7 +666,8 @@ export const KnowledgeGraphEngine = forwardRef<
     nodeMapRef.current = nodeMap
     simulationRef.current = simulation
     sigma.setGraph(graph)
-    scheduleHighlightAnimation()
+    applyInteractionState()
+    scheduleSimulationCooldown(nodes.length > 90 ? 640 : 900)
 
     const focusNodeId = focusRequestRef.current ?? selectedNodeRef.current
     if (focusNodeId && graph.hasNode(focusNodeId)) {
