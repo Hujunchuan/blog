@@ -516,6 +516,8 @@ export function KnowledgeGraphView({
   initialFocus?: string
 }) {
   const svgRef = useRef<SVGSVGElement | null>(null)
+  const animationFrameRef = useRef<number | null>(null)
+  const animatedPositionsRef = useRef<Record<string, NodePosition>>({})
   const allGroups = [...new Set(graph.nodes.map((node) => node.group))].sort((a, b) => a.localeCompare(b, "zh-CN"))
   const allRelationTypes = [...new Set(graph.edges.flatMap((edge) => edgeRelationTypes(edge)))].sort((a, b) =>
     a.localeCompare(b, "en"),
@@ -530,6 +532,7 @@ export function KnowledgeGraphView({
   const [pinnedNodeIds, setPinnedNodeIds] = useState<string[]>([])
   const [nodeOverrides, setNodeOverrides] = useState<Record<string, NodePosition>>({})
   const [dragState, setDragState] = useState<DragState>(null)
+  const [animatedPositions, setAnimatedPositions] = useState<Record<string, NodePosition>>({})
   const [evidenceCache, setEvidenceCache] = useState<Record<string, KnowledgeEvidenceResult>>({})
   const [evidenceLoadingKey, setEvidenceLoadingKey] = useState<string | undefined>()
   const [evidenceError, setEvidenceError] = useState<string | undefined>()
@@ -604,7 +607,19 @@ export function KnowledgeGraphView({
         }
       : node
   })
-  const positionedMap = new Map(layoutNodesWithOverrides.map((node) => [node.id, node]))
+  const targetPositions = Object.fromEntries(
+    layoutNodesWithOverrides.map((node) => [node.id, { x: node.x, y: node.y }]),
+  ) as Record<string, NodePosition>
+  const renderedNodes = layoutNodesWithOverrides.map((node) => {
+    const animated = animatedPositions[node.id]
+    return animated
+      ? {
+          ...node,
+          ...animated,
+        }
+      : node
+  })
+  const positionedMap = new Map(renderedNodes.map((node) => [node.id, node]))
   const allDocumentLabels = new Map(
     graph.nodes
       .filter((node) => node.group === "document" && typeof node.slug === "string")
@@ -668,6 +683,75 @@ export function KnowledgeGraphView({
   }
 
   const visibleRelationTypes = [...new Set(visibleEdges.flatMap((edge) => edgeRelationTypes(edge)))]
+
+  useEffect(() => {
+    animatedPositionsRef.current = animatedPositions
+  }, [animatedPositions])
+
+  useEffect(() => {
+    if (animationFrameRef.current !== null) {
+      cancelAnimationFrame(animationFrameRef.current)
+      animationFrameRef.current = null
+    }
+
+    const center = { x: baseLayout.width / 2, y: baseLayout.height / 2 }
+    const anchorStart =
+      (selectedAnchorId && animatedPositionsRef.current[selectedAnchorId]) ||
+      (selectedAnchorId && targetPositions[selectedAnchorId]) ||
+      center
+
+    const startPositions = Object.fromEntries(
+      layoutNodesWithOverrides.map((node) => [
+        node.id,
+        animatedPositionsRef.current[node.id] ?? anchorStart,
+      ]),
+    ) as Record<string, NodePosition>
+
+    if (dragState) {
+      animatedPositionsRef.current = targetPositions
+      setAnimatedPositions(targetPositions)
+      return
+    }
+
+    const duration = 560
+    const startTime = performance.now()
+
+    const step = (now: number) => {
+      const progress = Math.min((now - startTime) / duration, 1)
+      const eased = 1 - (1 - progress) ** 3
+      const nextPositions = Object.fromEntries(
+        layoutNodesWithOverrides.map((node) => {
+          const from = startPositions[node.id] ?? center
+          const to = targetPositions[node.id] ?? center
+          return [
+            node.id,
+            {
+              x: from.x + (to.x - from.x) * eased,
+              y: from.y + (to.y - from.y) * eased,
+            },
+          ]
+        }),
+      ) as Record<string, NodePosition>
+
+      animatedPositionsRef.current = nextPositions
+      setAnimatedPositions(nextPositions)
+
+      if (progress < 1) {
+        animationFrameRef.current = requestAnimationFrame(step)
+      } else {
+        animationFrameRef.current = null
+      }
+    }
+
+    animationFrameRef.current = requestAnimationFrame(step)
+
+    return () => {
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current)
+        animationFrameRef.current = null
+      }
+    }
+  }, [baseLayout.height, baseLayout.width, dragState, layoutNodesWithOverrides, selectedAnchorId, targetPositions])
 
   useEffect(() => {
     if (!selectedEvidenceKey) {
@@ -1014,7 +1098,7 @@ export function KnowledgeGraphView({
                   />
                 )
               })}
-              {layoutNodesWithOverrides.map((node) => {
+              {renderedNodes.map((node) => {
                 const active = selectedNode?.id === node.id
                 const pinned = pinnedNodeIds.includes(node.id)
                 return (
@@ -1037,7 +1121,13 @@ export function KnowledgeGraphView({
                     }}
                     onPointerDown={(event) => handleNodePointerDown(event, node)}
                   >
-                    <circle cx={node.x} cy={node.y} r={node.radius} fill={node.color} />
+                    <circle
+                      cx={node.x}
+                      cy={node.y}
+                      r={node.radius}
+                      fill={node.color}
+                      style={{ animationDelay: `${(hashValue(node.id) % 11) * 0.18}s` }}
+                    />
                     <text x={node.x} y={node.y + node.radius + 14} textAnchor="middle">
                       {node.label.length > 12 ? `${node.label.slice(0, 12)}...` : node.label}
                     </text>
