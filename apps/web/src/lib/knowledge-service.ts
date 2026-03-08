@@ -1,6 +1,7 @@
 import { createKnowledgeConnector } from "@repo/connectors/factory"
 import {
   getPersistedDocumentBySlug,
+  getPersistedEvidence,
   getPersistedExplorerTree,
   getPersistedGraph,
   getPersistedImpact,
@@ -10,6 +11,8 @@ import {
   searchPersistedDocuments,
 } from "@repo/db/index"
 import {
+  KnowledgeEvidenceDocument,
+  KnowledgeEvidenceResult,
   KnowledgeImpactResult,
   KnowledgeRelatedResult,
   KnowledgeSnapshot,
@@ -249,6 +252,93 @@ export async function getKnowledgeImpact(
     depth: input.depth,
     limit: input.limit,
   })
+}
+
+export async function getKnowledgeEvidence(
+  sourceId: string,
+  input: { entityKey?: string; slug?: string; limit?: number },
+): Promise<KnowledgeEvidenceResult | null> {
+  const slugCandidates = input.slug ? [...new Set(buildSlugCandidates(input.slug))] : []
+
+  if (input.entityKey) {
+    const persisted = await tryReadPersisted(() =>
+      getPersistedEvidence(sourceId, {
+        entityKey: input.entityKey,
+        limit: input.limit,
+      }),
+    )
+    if (persisted) {
+      return persisted
+    }
+  }
+
+  for (const candidate of slugCandidates) {
+    const persisted = await tryReadPersisted(() =>
+      getPersistedEvidence(sourceId, {
+        slug: candidate,
+        limit: input.limit,
+      }),
+    )
+    if (persisted) {
+      return persisted
+    }
+  }
+
+  const snapshot = await getSnapshot(sourceId)
+  const nervousSystem = buildKnowledgeNervousSystem(snapshot.documents)
+  const root =
+    nervousSystem.entities.find((entity) => input.entityKey && entity.entityKey === input.entityKey) ??
+    nervousSystem.entities.find((entity) => entity.slug && slugCandidates.includes(entity.slug))
+
+  if (!root) {
+    return null
+  }
+
+  const relations = nervousSystem.relations
+    .filter(
+      (relation) =>
+        (relation.fromEntityKey === root.entityKey || relation.toEntityKey === root.entityKey) &&
+        Boolean(relation.evidenceDocumentSlug),
+    )
+    .slice(0, Math.max(1, Math.min(input.limit ?? 24, 100)))
+    .map((relation) => ({
+      ...relation,
+      direction: relation.fromEntityKey === root.entityKey ? ("outgoing" as const) : ("incoming" as const),
+    }))
+
+  const documentsBySlug = new Map(snapshot.documents.map((document) => [document.slug, document]))
+  const evidenceDocumentSlugs = [
+    ...new Set(
+      relations
+        .map((relation) => relation.evidenceDocumentSlug)
+        .filter((slug): slug is string => typeof slug === "string" && slug.length > 0),
+    ),
+  ]
+  const documents: KnowledgeEvidenceDocument[] = evidenceDocumentSlugs
+    .map((slug) => documentsBySlug.get(slug))
+    .filter((document): document is ParsedKnowledgeDocument => Boolean(document))
+    .map((document) => ({
+      sourceId,
+      slug: document.slug,
+      title: document.title,
+      summary: document.summary,
+      updatedAt: document.updatedAt,
+      relationKeys: relations
+        .filter((relation) => relation.evidenceDocumentSlug === document.slug)
+        .map((relation) => relation.relationKey),
+    }))
+
+  return {
+    root,
+    relations,
+    documents,
+    summary: {
+      relationCount: relations.length,
+      evidenceDocumentCount: documents.length,
+      incomingCount: relations.filter((relation) => relation.direction === "incoming").length,
+      outgoingCount: relations.filter((relation) => relation.direction === "outgoing").length,
+    },
+  }
 }
 
 export async function searchDocuments(sourceId: string, query: string) {

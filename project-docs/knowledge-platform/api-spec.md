@@ -107,6 +107,30 @@
 - 当前是第一版 BFS 影响分析，适合文档与标签节点
 - 多跳深度默认 `2`
 
+### `GET /api/source/:sourceId/evidence?slug=...`
+
+返回某个节点相关关系对应的证据文档。
+
+当前支持：
+
+- `slug`
+- `entityKey`
+- `limit`
+
+返回：
+
+- `root`
+- `relations`
+- `documents`
+- `summary`
+
+当前实现：
+
+- 优先读 PostgreSQL 中的 `entities / relations / documents`
+- 若数据库不可用或该知识源未持久化，则回退到内存 nervous system 快照
+- 当前证据来源依赖 `relations.evidence_document_slug`
+- 第一版主要适合 `document` 与 `tag` 节点
+
 ## 管理接口
 
 ### `POST /api/admin/cache?sourceId=...`
@@ -148,7 +172,6 @@
 - `POST /api/admin/sources`
 - `PATCH /api/admin/sources/:sourceId`
 - `GET /api/source/:sourceId/doc/:slug`
-- `GET /api/source/:sourceId/evidence`
 
 ## 设计原则
 

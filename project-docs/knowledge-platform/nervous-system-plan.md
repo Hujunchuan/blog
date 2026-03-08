@@ -164,11 +164,12 @@
 - 第一版结构化关系已经开始落库
 - `related` 查询 API 已经可用
 - `impact` 查询 API 已经可用
-- 下一轮可以直接开始做 `evidence` 查询
+- `evidence` 查询 API 已经可用
+- 下一轮可以直接开始做前端知识视图
 
 ## 进入下一轮开发时的优先级
 
-1. 提供 `evidence` 查询 API
-2. 在图谱页增加“知识节点模式”
-3. 为 `related / impact` 增加前端入口
-4. 扩展更多实体类型的抽取规则
+1. 在图谱页增加“知识节点模式”
+2. 为 `related / impact / evidence` 增加前端入口
+3. 扩展更多实体类型的抽取规则
+4. 为 `concept / person / project` 增加最小抽取规则

@@ -14,6 +14,7 @@
 - 已接入 nervous system 第一版基础模型，并在 persist 时写入 `entities / relations`
 - 已新增 `related` API，可从 `entities / relations` 回读相邻知识关系
 - 已新增 `impact` API，可返回多跳影响图
+- 已新增 `evidence` API，可返回关系对应的证据文档
 
 ## 文档列表
 
@@ -49,4 +50,4 @@
 1. 为 Explorer 和图谱设计更稳定的物化读模型。
 2. 开始定义 GitHub connector 的最小实现。
 3. 为 watcher 增加更细的增量同步策略。
-4. 基于 `entities / relations` 继续补 `evidence` 查询，并准备前端视图。
+4. 基于 `entities / relations` 开始补前端视图和知识节点模式。

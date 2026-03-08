@@ -1,5 +1,7 @@
 import {
   KnowledgeEntity,
+  KnowledgeEvidenceDocument,
+  KnowledgeEvidenceResult,
   KnowledgeImpactResult,
   KnowledgeNervousSystemSnapshot,
   KnowledgeOverview,
@@ -501,5 +503,110 @@ export async function getPersistedImpact(
   return buildKnowledgeImpact(nervousSystem, root.entityKey, {
     depth: input.depth,
     limit: input.limit,
+  })
+}
+
+export async function getPersistedEvidence(
+  sourceId: string,
+  input: { entityKey?: string; slug?: string; limit?: number },
+): Promise<KnowledgeEvidenceResult | null> {
+  if (!(await hasPersistedSource(sourceId))) {
+    return null
+  }
+
+  const limit = Math.max(1, Math.min(input.limit ?? 24, 100))
+
+  return withPgClient(async (client) => {
+    const rootResult = await client.query<EntityRow>(
+      `
+        SELECT entity_key, entity_type, canonical_name, slug, document_slug, metadata
+        FROM entities
+        WHERE source_id = $1
+          AND (
+            ($2::text IS NOT NULL AND entity_key = $2)
+            OR ($3::text IS NOT NULL AND slug = $3)
+          )
+        ORDER BY
+          CASE
+            WHEN $2::text IS NOT NULL AND entity_key = $2 THEN 0
+            ELSE 1
+          END,
+          entity_key ASC
+        LIMIT 1
+      `,
+      [sourceId, input.entityKey ?? null, input.slug ?? null],
+    )
+
+    const rootRow = rootResult.rows[0]
+    if (!rootRow) {
+      return null
+    }
+
+    const root = mapEntityRow(rootRow, sourceId)
+    const relationsResult = await client.query<RelationRow>(
+      `
+        SELECT
+          relation_key,
+          relation_type,
+          from_entity_key,
+          to_entity_key,
+          evidence_document_slug,
+          weight,
+          metadata,
+          CASE
+            WHEN from_entity_key = $2 THEN 'outgoing'
+            ELSE 'incoming'
+          END AS direction
+        FROM relations
+        WHERE source_id = $1
+          AND (from_entity_key = $2 OR to_entity_key = $2)
+          AND evidence_document_slug IS NOT NULL
+        ORDER BY weight DESC, relation_type ASC, relation_key ASC
+        LIMIT $3
+      `,
+      [sourceId, root.entityKey, limit],
+    )
+
+    const relations = relationsResult.rows.map((row) => mapRelationRow(row, sourceId))
+    const evidenceDocumentSlugs = [...new Set(relations.map((relation) => relation.evidenceDocumentSlug).filter(Boolean))]
+
+    let documents: KnowledgeEvidenceDocument[] = []
+    if (evidenceDocumentSlugs.length > 0) {
+      const documentsResult = await client.query<DocumentRow>(
+        `
+          SELECT relative_path, slug, title, content, summary, tags, links, headings, updated_at::text
+          FROM documents
+          WHERE source_id = $1
+            AND slug = ANY($2::text[])
+          ORDER BY updated_at DESC, slug ASC
+        `,
+        [sourceId, evidenceDocumentSlugs],
+      )
+
+      documents = documentsResult.rows
+        .map((row) => mapDocumentRow(row, sourceId))
+        .map((document) => ({
+          sourceId,
+          slug: document.slug,
+          title: document.title,
+          summary: document.summary,
+          updatedAt: document.updatedAt,
+          relationKeys: relations
+            .filter((relation) => relation.evidenceDocumentSlug === document.slug)
+            .map((relation) => relation.relationKey),
+        }))
+    }
+
+    return {
+      root,
+      relations,
+      documents,
+      summary: {
+        relationCount: relations.length,
+        evidenceDocumentCount: documents.length,
+        incomingCount: relations.filter((relation) => relation.direction === "incoming").length,
+        outgoingCount: relations.filter((relation) => relation.direction === "outgoing").length,
+      },
+    }
   })
 }

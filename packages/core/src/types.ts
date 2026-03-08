@@ -113,6 +113,27 @@ export interface KnowledgeImpactResult {
   }
 }
 
+export interface KnowledgeEvidenceDocument {
+  sourceId: string
+  slug: string
+  title: string
+  summary: string
+  updatedAt: string
+  relationKeys: string[]
+}
+
+export interface KnowledgeEvidenceResult {
+  root: KnowledgeEntity
+  relations: RelatedKnowledgeRelation[]
+  documents: KnowledgeEvidenceDocument[]
+  summary: {
+    relationCount: number
+    evidenceDocumentCount: number
+    incomingCount: number
+    outgoingCount: number
+  }
+}
+
 export interface ExplorerNode {
   id: string
   name: string
