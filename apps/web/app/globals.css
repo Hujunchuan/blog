@@ -392,6 +392,49 @@ a:hover {
   align-items: center;
 }
 
+.graph-controls {
+  display: grid;
+  gap: 12px;
+}
+
+.graph-control-group {
+  display: grid;
+  gap: 8px;
+}
+
+.graph-control-grow {
+  min-width: 0;
+}
+
+.graph-control-label {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.graph-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.graph-pill,
+.graph-inline-button {
+  border: 1px solid rgba(91, 76, 52, 0.14);
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.graph-pill[data-active="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
 .graph-search {
   display: flex;
   gap: 10px;
@@ -423,6 +466,11 @@ a:hover {
 .graph-edge {
   stroke: rgba(91, 76, 52, 0.2);
   stroke-width: 1.2;
+}
+
+.graph-edge[data-highlighted="true"] {
+  stroke: rgba(183, 121, 63, 0.65);
+  stroke-width: 2;
 }
 
 .graph-node {
