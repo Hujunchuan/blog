@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { DocumentContent } from "@/components/document-content"
-import { getDocumentBySlug, getSource, knowledgeAnalysisUrl, tagEntityKey } from "@/lib/knowledge-service"
+import { getDocumentBySlug, getSource, graphUrl, knowledgeAnalysisUrl, tagEntityKey } from "@/lib/knowledge-service"
 
 function safeDecodeSegment(value: string) {
   try {
@@ -48,6 +48,9 @@ export default async function DocumentPage({
               prefetch={false}
             >
               {"\u77E5\u8BC6\u5206\u6790"}
+            </Link>
+            <Link href={graphUrl(sourceId, { mode: "documents", focus: document.slug })} className="ghost-link" prefetch={false}>
+              {"\u6587\u6863\u56FE\u8C31"}
             </Link>
           </div>
         </div>

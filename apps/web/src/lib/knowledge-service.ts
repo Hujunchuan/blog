@@ -13,6 +13,7 @@ import {
 import {
   KnowledgeEvidenceDocument,
   KnowledgeEvidenceResult,
+  KnowledgeGraphMode,
   KnowledgeImpactResult,
   KnowledgeRelatedResult,
   KnowledgeSnapshot,
@@ -21,6 +22,7 @@ import {
 } from "@repo/core/types"
 import { MarkdownKnowledgeParser } from "@repo/parser/markdownParser"
 import { buildKnowledgeImpact, buildKnowledgeNervousSystem } from "@repo/sync/nervousSystem"
+import { createKnowledgeGraph } from "@repo/sync/projections"
 import { buildKnowledgeSnapshot } from "@repo/sync/syncKnowledgeBase"
 import { getKnowledgeSourcesConfig, getSnapshotTtlMs } from "./config"
 import { MemorySnapshotRepository } from "./memory-snapshot-repository"
@@ -142,13 +144,18 @@ export async function getExplorerTree(sourceId: string) {
   return (await getSnapshot(sourceId)).tree
 }
 
-export async function getGraph(sourceId: string) {
-  const persisted = await tryReadPersisted(() => getPersistedGraph(sourceId))
+export async function getGraph(sourceId: string, mode: KnowledgeGraphMode = "documents") {
+  const persisted = await tryReadPersisted(() => getPersistedGraph(sourceId, mode))
   if (persisted) {
     return persisted
   }
 
-  return (await getSnapshot(sourceId)).graph
+  const snapshot = await getSnapshot(sourceId)
+  if (mode === "knowledge") {
+    return createKnowledgeGraph(buildKnowledgeNervousSystem(snapshot.documents))
+  }
+
+  return snapshot.graph
 }
 
 export async function getRelatedKnowledge(
@@ -429,4 +436,20 @@ export function knowledgeAnalysisUrl(
 
   const query = params.toString()
   return `/source/${encodeURIComponent(sourceId)}/knowledge${query ? `?${query}` : ""}`
+}
+
+export function graphUrl(
+  sourceId: string,
+  input: { mode?: KnowledgeGraphMode; focus?: string } = {},
+) {
+  const params = new URLSearchParams()
+  if (input.mode) {
+    params.set("mode", input.mode)
+  }
+  if (input.focus) {
+    params.set("focus", input.focus)
+  }
+
+  const query = params.toString()
+  return `/source/${encodeURIComponent(sourceId)}/graph${query ? `?${query}` : ""}`
 }

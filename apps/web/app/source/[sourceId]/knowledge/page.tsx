@@ -8,6 +8,7 @@ import {
   getRelatedKnowledge,
   getSource,
   getSourceOverview,
+  graphUrl,
   knowledgeAnalysisUrl,
   tagEntityKey,
 } from "@/lib/knowledge-service"
@@ -123,6 +124,16 @@ export default async function KnowledgePage({
             <Link href={`/source/${encodeURIComponent(sourceId)}`} className="ghost-link" prefetch={false}>
               {`\u8FD4\u56DE ${source.name}`}
             </Link>
+            <Link
+              href={graphUrl(sourceId, {
+                mode: "knowledge",
+                focus: entityKey ?? (slug ? `document:${slug}` : undefined),
+              })}
+              className="ghost-link"
+              prefetch={false}
+            >
+              {"\u6253\u5F00\u77E5\u8BC6\u56FE\u8C31"}
+            </Link>
           </div>
         </div>
         <form action={`/source/${encodeURIComponent(sourceId)}/knowledge`} className="analysis-form">
@@ -220,6 +231,13 @@ export default async function KnowledgePage({
                 prefetch={false}
               >
                 {"\u56FA\u5B9A\u5230 entityKey"}
+              </Link>
+              <Link
+                href={graphUrl(sourceId, { mode: "knowledge", focus: root.entityKey })}
+                className="ghost-link"
+                prefetch={false}
+              >
+                {"\u5728\u56FE\u8C31\u4E2D\u67E5\u770B"}
               </Link>
             </div>
           </section>

@@ -12,6 +12,7 @@ This document set describes the migration path from the original Quartz-based st
 - `/admin` is available for health checks and manual sync actions.
 - `npm run watch:sources` can watch local sources and trigger automatic persistence.
 - The first nervous-system analysis screen is available at `/source/[sourceId]/knowledge`.
+- The graph page now supports both document mode and knowledge mode at `/source/[sourceId]/graph`.
 
 ## Document List
 
@@ -48,10 +49,11 @@ This document set describes the migration path from the original Quartz-based st
 - Added source-page entry links into the analysis workflow.
 - Added document-page entry links and tag pivots into the same workflow.
 - Combined `related`, `impact`, and `evidence` data into one screen.
+- Added `/source/[sourceId]/graph` with `documents` and `knowledge` modes.
 
 ## Next Focus
 
-1. Add a knowledge-node mode to the graph experience.
-2. Expand entity extraction beyond tags and document links.
+1. Expand entity extraction beyond tags and document links.
+2. Add richer graph interactions on top of the new dual-mode graph page.
 3. Add GitHub connector as the first remote source connector.
 4. Move watcher-driven sync from full refresh toward incremental sync.

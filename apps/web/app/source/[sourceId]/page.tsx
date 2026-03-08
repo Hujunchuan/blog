@@ -8,6 +8,7 @@ import {
   getGraph,
   getSource,
   getSourceOverview,
+  graphUrl,
   knowledgeAnalysisUrl,
   searchDocuments,
   tagEntityKey,
@@ -45,6 +46,9 @@ export default async function SourcePage({ params }: { params: Promise<{ sourceI
           <div className="action-row">
             <Link href={defaultAnalysisHref} className="ghost-link" prefetch={false}>
               {"\u6253\u5F00\u77E5\u8BC6\u5206\u6790"}
+            </Link>
+            <Link href={graphUrl(sourceId, { mode: "documents" })} className="ghost-link" prefetch={false}>
+              {"\u6253\u5F00\u56FE\u8C31"}
             </Link>
           </div>
         </div>
@@ -155,6 +159,14 @@ export default async function SourcePage({ params }: { params: Promise<{ sourceI
                 { label: "\u5FEB\u901F\u641C\u7D22\u7ED3\u679C", value: quickResults.length },
               ]}
             />
+            <div className="action-row">
+              <Link href={graphUrl(sourceId, { mode: "documents" })} className="ghost-link" prefetch={false}>
+                {"\u67E5\u770B\u6587\u6863\u56FE\u8C31"}
+              </Link>
+              <Link href={graphUrl(sourceId, { mode: "knowledge" })} className="ghost-link" prefetch={false}>
+                {"\u67E5\u770B\u77E5\u8BC6\u56FE\u8C31"}
+              </Link>
+            </div>
           </section>
         </div>
       </div>

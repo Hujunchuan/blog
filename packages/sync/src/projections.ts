@@ -1,5 +1,11 @@
 import path from "path"
-import { ExplorerNode, KnowledgeGraphEdge, KnowledgeGraphNode, ParsedKnowledgeDocument } from "../../core/src"
+import {
+  ExplorerNode,
+  KnowledgeGraphEdge,
+  KnowledgeGraphNode,
+  KnowledgeNervousSystemSnapshot,
+  ParsedKnowledgeDocument,
+} from "../../core/src"
 
 function getFolderName(slug: string) {
   const parts = slug.split("/")
@@ -111,6 +117,37 @@ export function createGraph(documents: ParsedKnowledgeDocument[]) {
     slug: document.slug,
     group: getFolderName(document.slug),
     weight: weights.get(document.slug) ?? 0,
+  }))
+
+  return { nodes, edges }
+}
+
+export function createKnowledgeGraph(nervousSystem: KnowledgeNervousSystemSnapshot) {
+  const weights = new Map<string, number>()
+  const edgeSet = new Set<string>()
+  const edges: KnowledgeGraphEdge[] = []
+
+  for (const relation of nervousSystem.relations) {
+    const key = `${relation.fromEntityKey}->${relation.toEntityKey}`
+    if (!edgeSet.has(key)) {
+      edgeSet.add(key)
+      edges.push({
+        source: relation.fromEntityKey,
+        target: relation.toEntityKey,
+      })
+    }
+
+    weights.set(relation.fromEntityKey, (weights.get(relation.fromEntityKey) ?? 0) + (relation.weight ?? 1))
+    weights.set(relation.toEntityKey, (weights.get(relation.toEntityKey) ?? 0) + (relation.weight ?? 1))
+  }
+
+  const nodes: KnowledgeGraphNode[] = nervousSystem.entities.map((entity) => ({
+    id: entity.entityKey,
+    label: entity.canonicalName,
+    slug: entity.slug,
+    entityKey: entity.entityKey,
+    group: entity.entityType,
+    weight: weights.get(entity.entityKey) ?? 0,
   }))
 
   return { nodes, edges }

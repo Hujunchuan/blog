@@ -55,12 +55,13 @@ Status:
 - `related`, `impact`, and `evidence` APIs are available
 - `/source/[sourceId]/knowledge` is live
 - Source and document pages now link into the analysis workflow
+- `/source/[sourceId]/graph` now supports `documents` and `knowledge` modes
 
 Next:
 
-1. Add knowledge-node mode into the graph UI.
-2. Expand extraction rules for `concept`, `person`, and `project`.
-3. Add more frontend pivots and local graph exploration.
+1. Expand extraction rules for `concept`, `person`, and `project`.
+2. Add richer graph interactions and local exploration tools.
+3. Add more frontend pivots around entity types and evidence links.
 
 ## Phase 3: Multi-Source Federation
 

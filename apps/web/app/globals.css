@@ -371,6 +371,108 @@ a:hover {
   gap: 20px;
 }
 
+.graph-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 340px);
+  gap: 18px;
+  align-items: start;
+}
+
+.graph-stage,
+.graph-sidebar {
+  display: grid;
+  gap: 14px;
+}
+
+.graph-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.graph-search {
+  display: flex;
+  gap: 10px;
+  flex: 1;
+  min-width: 260px;
+}
+
+.graph-search input {
+  width: 100%;
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  font: inherit;
+}
+
+.graph-canvas-shell {
+  border-radius: 22px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(91, 76, 52, 0.12);
+}
+
+.graph-canvas {
+  width: 100%;
+  min-height: 620px;
+  display: block;
+}
+
+.graph-edge {
+  stroke: rgba(91, 76, 52, 0.2);
+  stroke-width: 1.2;
+}
+
+.graph-node {
+  cursor: pointer;
+}
+
+.graph-node circle {
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 2;
+  transition:
+    stroke 120ms ease,
+    stroke-width 120ms ease,
+    transform 120ms ease;
+}
+
+.graph-node[data-active="true"] circle {
+  stroke: var(--warm);
+  stroke-width: 4;
+}
+
+.graph-node text {
+  fill: var(--text);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.graph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.graph-node-button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(91, 76, 52, 0.12);
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.graph-node-button small {
+  color: var(--muted);
+}
+
 .badge-row {
   display: flex;
   flex-wrap: wrap;
@@ -498,7 +600,8 @@ a:hover {
   }
 
   .analysis-form,
-  .analysis-grid {
+  .analysis-grid,
+  .graph-workspace {
     grid-template-columns: 1fr;
   }
 

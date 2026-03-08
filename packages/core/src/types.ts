@@ -143,10 +143,13 @@ export interface ExplorerNode {
   children?: ExplorerNode[]
 }
 
+export type KnowledgeGraphMode = "documents" | "knowledge"
+
 export interface KnowledgeGraphNode {
   id: string
   label: string
-  slug: string
+  slug?: string
+  entityKey?: string
   group: string
   weight: number
 }

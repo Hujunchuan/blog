@@ -2,6 +2,7 @@ import {
   KnowledgeEntity,
   KnowledgeEvidenceDocument,
   KnowledgeEvidenceResult,
+  KnowledgeGraphMode,
   KnowledgeImpactResult,
   KnowledgeNervousSystemSnapshot,
   KnowledgeOverview,
@@ -10,7 +11,7 @@ import {
   RelatedKnowledgeRelation,
 } from "../../core/src"
 import { buildKnowledgeImpact } from "../../sync/src/nervousSystem"
-import { createGraph, createTree } from "../../sync/src/projections"
+import { createGraph, createKnowledgeGraph, createTree } from "../../sync/src/projections"
 import { withPgClient } from "./client"
 
 type DocumentRow = {
@@ -392,9 +393,14 @@ export async function getPersistedExplorerTree(sourceId: string) {
   return createTree(documents)
 }
 
-export async function getPersistedGraph(sourceId: string) {
+export async function getPersistedGraph(sourceId: string, mode: KnowledgeGraphMode = "documents") {
   if (!(await hasPersistedSource(sourceId))) {
     return null
+  }
+
+  if (mode === "knowledge") {
+    const nervousSystem = await listPersistedNervousSystem(sourceId)
+    return createKnowledgeGraph(nervousSystem)
   }
 
   const documents = await listPersistedDocuments(sourceId)

@@ -141,10 +141,11 @@ Prepare future tool interfaces such as:
 - `related`, `impact`, and `evidence` APIs are in place
 - `/source/[sourceId]/knowledge` is the first integrated analysis screen
 - source and document pages now link into this workflow
+- `/source/[sourceId]/graph` now exposes the first dual-mode graph surface
 
 ## Next Priorities
 
-1. Add knowledge-node mode to the graph UI.
-2. Expand extraction rules for `concept`, `person`, and `project`.
+1. Expand extraction rules for `concept`, `person`, and `project`.
+2. Add richer graph interactions and better local exploration around focused nodes.
 3. Add more frontend pivots around entity types and evidence links.
 4. Keep the nervous-system layer compatible with future GitHub and remote-server connectors.
