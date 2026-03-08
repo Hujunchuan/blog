@@ -2,13 +2,21 @@ import { notFound } from "next/navigation"
 import { DocumentContent } from "@/components/document-content"
 import { getDocumentBySlug, getSource } from "@/lib/knowledge-service"
 
+function safeDecodeSegment(value: string) {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
 export default async function DocumentPage({
   params,
 }: {
   params: Promise<{ sourceId: string; slug: string[] }>
 }) {
   const { sourceId, slug } = await params
-  const fullSlug = slug.join("/")
+  const fullSlug = slug.map((segment) => safeDecodeSegment(segment)).join("/")
 
   try {
     const source = await getSource(sourceId)
@@ -27,9 +35,9 @@ export default async function DocumentPage({
 
         <article className="panel document-panel">
           <div className="document-meta">
-            <span>更新时间：{new Date(document.updatedAt).toLocaleString("zh-CN")}</span>
-            <span>标签：{document.tags.length}</span>
-            <span>链接：{document.links.length}</span>
+            <span>更新时间: {new Date(document.updatedAt).toLocaleString("zh-CN")}</span>
+            <span>标签: {document.tags.length}</span>
+            <span>链接: {document.links.length}</span>
           </div>
           <DocumentContent content={document.content} />
         </article>

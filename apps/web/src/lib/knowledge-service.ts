@@ -15,6 +15,58 @@ import { MemorySnapshotRepository } from "./memory-snapshot-repository"
 
 const snapshotRepository = new MemorySnapshotRepository(getSnapshotTtlMs())
 
+function safeDecodeSegment(value: string) {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+function repairMojibakeSegment(value: string) {
+  try {
+    return Buffer.from(value, "latin1").toString("utf8")
+  } catch {
+    return value
+  }
+}
+
+function buildSlugCandidates(slug: string) {
+  const candidates = new Set<string>()
+  const addCandidate = (value: string) => {
+    if (value) {
+      candidates.add(value)
+    }
+  }
+
+  const decoded = slug
+    .split("/")
+    .map((segment) => safeDecodeSegment(segment))
+    .join("/")
+  const repaired = slug
+    .split("/")
+    .map((segment) => repairMojibakeSegment(segment))
+    .join("/")
+  const decodedAndRepaired = decoded
+    .split("/")
+    .map((segment) => repairMojibakeSegment(segment))
+    .join("/")
+
+  addCandidate(slug)
+  addCandidate(decoded)
+  addCandidate(repaired)
+  addCandidate(decodedAndRepaired)
+
+  return [...candidates]
+}
+
+function normalizeSlug(slug: string) {
+  return slug
+    .split("/")
+    .map((segment) => safeDecodeSegment(segment))
+    .join("/")
+}
+
 async function getSourceOrThrow(sourceId: string): Promise<KnowledgeSource> {
   const source = (await getKnowledgeSourcesConfig()).find((item) => item.id === sourceId && item.enabled)
   if (!source) {
@@ -116,12 +168,22 @@ export async function searchDocuments(sourceId: string, query: string) {
 }
 
 export async function getDocumentBySlug(sourceId: string, slug: string) {
-  const persisted = await tryReadPersisted(() => getPersistedDocumentBySlug(sourceId, slug))
-  if (persisted) {
-    return persisted
+  const normalizedSlug = normalizeSlug(slug)
+  const slugCandidates = buildSlugCandidates(slug)
+  if (normalizedSlug !== slug) {
+    slugCandidates.push(...buildSlugCandidates(normalizedSlug))
   }
 
-  return (await getSnapshot(sourceId)).documents.find((document) => document.slug === slug)
+  for (const candidate of [...new Set(slugCandidates)]) {
+    const persisted = await tryReadPersisted(() => getPersistedDocumentBySlug(sourceId, candidate))
+    if (persisted) {
+      return persisted
+    }
+  }
+
+  return (await getSnapshot(sourceId)).documents.find((document) =>
+    [...new Set(slugCandidates)].includes(document.slug),
+  )
 }
 
 export async function listRecentDocuments(sourceId: string) {
