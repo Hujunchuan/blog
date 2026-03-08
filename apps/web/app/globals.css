@@ -521,6 +521,48 @@ a:hover {
   color: var(--muted);
 }
 
+.graph-connection-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(91, 76, 52, 0.12);
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.graph-connection-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.graph-connection-header strong,
+.graph-evidence-link strong {
+  display: block;
+  color: var(--text);
+}
+
+.graph-connection-header small,
+.graph-evidence-link small {
+  color: var(--muted);
+}
+
+.graph-evidence-link {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(91, 76, 52, 0.12);
+  background: rgba(255, 255, 255, 0.58);
+  text-decoration: none;
+}
+
+.graph-evidence-link:hover {
+  text-decoration: none;
+  background: rgba(220, 232, 229, 0.7);
+}
+
 .badge-row {
   display: flex;
   flex-wrap: wrap;

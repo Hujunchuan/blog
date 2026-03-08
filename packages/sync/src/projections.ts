@@ -3,6 +3,7 @@ import {
   ExplorerNode,
   KnowledgeGraphEdge,
   KnowledgeGraphNode,
+  KnowledgeRelationType,
   KnowledgeNervousSystemSnapshot,
   ParsedKnowledgeDocument,
 } from "../../core/src"
@@ -105,7 +106,13 @@ export function createGraph(documents: ParsedKnowledgeDocument[]) {
       if (edgeSet.has(key)) continue
 
       edgeSet.add(key)
-      edges.push({ source: document.slug, target: target.slug })
+      edges.push({
+        source: document.slug,
+        target: target.slug,
+        relationTypes: ["references"],
+        evidenceDocumentSlugs: [document.slug],
+        weight: 1,
+      })
       weights.set(document.slug, (weights.get(document.slug) ?? 0) + 1)
       weights.set(target.slug, (weights.get(target.slug) ?? 0) + 1)
     }
@@ -124,22 +131,52 @@ export function createGraph(documents: ParsedKnowledgeDocument[]) {
 
 export function createKnowledgeGraph(nervousSystem: KnowledgeNervousSystemSnapshot) {
   const weights = new Map<string, number>()
-  const edgeSet = new Set<string>()
-  const edges: KnowledgeGraphEdge[] = []
+  const edgeMap = new Map<
+    string,
+    {
+      source: string
+      target: string
+      relationTypes: Set<KnowledgeRelationType>
+      evidenceDocumentSlugs: Set<string>
+      weight: number
+    }
+  >()
 
   for (const relation of nervousSystem.relations) {
     const key = `${relation.fromEntityKey}->${relation.toEntityKey}`
-    if (!edgeSet.has(key)) {
-      edgeSet.add(key)
-      edges.push({
-        source: relation.fromEntityKey,
-        target: relation.toEntityKey,
-      })
+    const current = edgeMap.get(key) ?? {
+      source: relation.fromEntityKey,
+      target: relation.toEntityKey,
+      relationTypes: new Set<KnowledgeRelationType>(),
+      evidenceDocumentSlugs: new Set<string>(),
+      weight: 0,
     }
+
+    current.relationTypes.add(relation.relationType)
+    if (relation.evidenceDocumentSlug) {
+      current.evidenceDocumentSlugs.add(relation.evidenceDocumentSlug)
+    }
+    current.weight += relation.weight ?? 1
+    edgeMap.set(key, current)
 
     weights.set(relation.fromEntityKey, (weights.get(relation.fromEntityKey) ?? 0) + (relation.weight ?? 1))
     weights.set(relation.toEntityKey, (weights.get(relation.toEntityKey) ?? 0) + (relation.weight ?? 1))
   }
+
+  const edges: KnowledgeGraphEdge[] = [...edgeMap.values()]
+    .map((edge) => ({
+      source: edge.source,
+      target: edge.target,
+      relationTypes: [...edge.relationTypes].sort((a, b) => a.localeCompare(b, "en")),
+      evidenceDocumentSlugs: [...edge.evidenceDocumentSlugs].sort((a, b) => a.localeCompare(b, "en")),
+      weight: edge.weight,
+    }))
+    .sort(
+      (a, b) =>
+        (b.weight ?? 0) - (a.weight ?? 0) ||
+        a.source.localeCompare(b.source, "en") ||
+        a.target.localeCompare(b.target, "en"),
+    )
 
   const nodes: KnowledgeGraphNode[] = nervousSystem.entities.map((entity) => ({
     id: entity.entityKey,

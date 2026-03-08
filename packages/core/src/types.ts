@@ -157,6 +157,9 @@ export interface KnowledgeGraphNode {
 export interface KnowledgeGraphEdge {
   source: string
   target: string
+  relationTypes?: KnowledgeRelationType[]
+  evidenceDocumentSlugs?: string[]
+  weight?: number
 }
 
 export interface KnowledgeOverview {

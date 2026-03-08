@@ -2,25 +2,56 @@
 
 import Link from "next/link"
 import { useDeferredValue, useState } from "react"
-import { KnowledgeGraphEdge, KnowledgeGraphMode, KnowledgeGraphNode } from "@repo/core/types"
+import {
+  KnowledgeGraphEdge,
+  KnowledgeGraphMode,
+  KnowledgeGraphNode,
+  KnowledgeRelationType,
+} from "@repo/core/types"
 
 const palette = ["#174c5b", "#b7793f", "#4c6a2d", "#7d4d63", "#6f5b2d", "#1f5f5b", "#7f3b2e"]
 
 const groupLabels: Record<string, string> = {
-  root: "\u6839\u76EE\u5F55",
-  document: "\u6587\u6863",
-  tag: "\u6807\u7B7E",
-  concept: "\u6982\u5FF5",
-  person: "\u4EBA\u7269",
-  project: "\u9879\u76EE",
-  meeting: "\u4F1A\u8BAE",
-  decision: "\u51B3\u7B56",
-  task: "\u4EFB\u52A1",
-  practice: "\u5B9E\u8DF5",
+  root: "根目录",
+  document: "文档",
+  tag: "标签",
+  concept: "概念",
+  person: "人物",
+  project: "项目",
+  meeting: "会议",
+  decision: "决策",
+  task: "任务",
+  practice: "实践",
+}
+
+const relationLabels: Record<KnowledgeRelationType, string> = {
+  mentions: "提及",
+  references: "引用",
+  explains: "解释",
+  belongs_to: "归属",
+  derived_from: "派生",
+  decides: "决策",
+  supports: "支持",
+  contradicts: "冲突",
+  related_to: "关联",
+  next_step_for: "下一步",
 }
 
 type GraphScope = "all" | "local"
 type LocalDepth = 1 | 2
+
+type PositionedNode = KnowledgeGraphNode & {
+  x: number
+  y: number
+  radius: number
+  color: string
+}
+
+type SelectedConnection = {
+  edge: KnowledgeGraphEdge
+  peer: KnowledgeGraphNode
+  direction: "incoming" | "outgoing"
+}
 
 function hashValue(value: string) {
   let hash = 0
@@ -41,6 +72,10 @@ function encodeSlug(slug: string) {
     .join("/")
 }
 
+function documentHref(sourceId: string, slug: string) {
+  return `/source/${encodeURIComponent(sourceId)}/doc/${encodeSlug(slug)}`
+}
+
 function graphNodeHref(sourceId: string, mode: KnowledgeGraphMode, node: KnowledgeGraphNode) {
   if (mode === "knowledge") {
     if (node.entityKey) {
@@ -53,7 +88,7 @@ function graphNodeHref(sourceId: string, mode: KnowledgeGraphMode, node: Knowled
   }
 
   if (node.slug) {
-    return `/source/${encodeURIComponent(sourceId)}/doc/${encodeSlug(node.slug)}`
+    return documentHref(sourceId, node.slug)
   }
 
   return undefined
@@ -66,12 +101,28 @@ function graphFocusHref(sourceId: string, mode: KnowledgeGraphMode, node: Knowle
   return `/source/${encodeURIComponent(sourceId)}/graph?${params.toString()}`
 }
 
+function relationLabel(relationType: string) {
+  return relationLabels[relationType as KnowledgeRelationType] ?? relationType
+}
+
 function groupLabel(group: string) {
   return groupLabels[group] ?? group
 }
 
-function toggleGroup(activeGroups: string[], group: string) {
-  return activeGroups.includes(group) ? activeGroups.filter((item) => item !== group) : [...activeGroups, group]
+function toggleSelection(activeItems: string[], item: string) {
+  return activeItems.includes(item) ? activeItems.filter((candidate) => candidate !== item) : [...activeItems, item]
+}
+
+function edgeRelationTypes(edge: KnowledgeGraphEdge) {
+  return edge.relationTypes && edge.relationTypes.length > 0 ? edge.relationTypes : ["references"]
+}
+
+function edgeEvidenceSlugs(edge: KnowledgeGraphEdge) {
+  return edge.evidenceDocumentSlugs ?? []
+}
+
+function edgeWeight(edge: KnowledgeGraphEdge) {
+  return edge.weight ?? 1
 }
 
 function buildAdjacency(edges: KnowledgeGraphEdge[], allowedIds: Set<string>) {
@@ -193,13 +244,6 @@ function buildVisibleNodeIds(
   return new Set(scopedNodes.map((node) => node.id))
 }
 
-type PositionedNode = KnowledgeGraphNode & {
-  x: number
-  y: number
-  radius: number
-  color: string
-}
-
 function layoutNodes(nodes: KnowledgeGraphNode[]) {
   const width = 1040
   const height = 620
@@ -281,27 +325,42 @@ export function KnowledgeGraphView({
   initialFocus?: string
 }) {
   const allGroups = [...new Set(graph.nodes.map((node) => node.group))].sort((a, b) => a.localeCompare(b, "zh-CN"))
+  const allRelationTypes = [...new Set(graph.edges.flatMap((edge) => edgeRelationTypes(edge)))].sort((a, b) =>
+    a.localeCompare(b, "en"),
+  )
   const [query, setQuery] = useState("")
   const [scope, setScope] = useState<GraphScope>("all")
   const [localDepth, setLocalDepth] = useState<LocalDepth>(1)
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(initialFocus)
   const [activeGroups, setActiveGroups] = useState<string[]>(allGroups)
+  const [activeRelationTypes, setActiveRelationTypes] = useState<string[]>(allRelationTypes)
   const deferredQuery = useDeferredValue(query)
 
-  const visibleIds = buildVisibleNodeIds(
-    graph.nodes,
-    graph.edges,
-    deferredQuery,
-    initialFocus,
-    activeGroups,
-    scope,
-    localDepth,
-    selectedNodeId,
-  )
+  const activeRelationTypeSet = new Set(activeRelationTypes)
+  const relationScopedEdges =
+    activeRelationTypes.length === 0
+      ? []
+      : graph.edges.filter((edge) => edgeRelationTypes(edge).some((relationType) => activeRelationTypeSet.has(relationType)))
+
+  const visibleIds =
+    activeRelationTypes.length === 0
+      ? new Set<string>()
+      : buildVisibleNodeIds(
+          graph.nodes,
+          relationScopedEdges,
+          deferredQuery,
+          initialFocus,
+          activeGroups,
+          scope,
+          localDepth,
+          selectedNodeId,
+        )
 
   const visibleNodes = graph.nodes.filter((node) => visibleIds.has(node.id))
   const visibleNodeIdSet = new Set(visibleNodes.map((node) => node.id))
-  const visibleEdges = graph.edges.filter((edge) => visibleNodeIdSet.has(edge.source) && visibleNodeIdSet.has(edge.target))
+  const visibleEdges = relationScopedEdges.filter(
+    (edge) => visibleNodeIdSet.has(edge.source) && visibleNodeIdSet.has(edge.target),
+  )
   const degreeMap = new Map<string, number>()
 
   for (const edge of visibleEdges) {
@@ -311,21 +370,56 @@ export function KnowledgeGraphView({
 
   const layout = layoutNodes(visibleNodes)
   const positionedMap = new Map(layout.nodes.map((node) => [node.id, node]))
+  const allDocumentLabels = new Map(
+    graph.nodes
+      .filter((node) => node.group === "document" && typeof node.slug === "string")
+      .map((node) => [node.slug as string, node.label]),
+  )
+
   const selectedNode =
     visibleNodes.find((node) => node.id === selectedNodeId) ??
     visibleNodes.find((node) => node.id === initialFocus) ??
     visibleNodes[0]
   const selectedNodeHref = selectedNode ? graphNodeHref(sourceId, mode, selectedNode) : undefined
-  const selectedNeighbors = selectedNode
+
+  const selectedConnections: SelectedConnection[] = selectedNode
     ? visibleEdges
-        .filter((edge) => edge.source === selectedNode.id || edge.target === selectedNode.id)
         .map((edge) => {
-          const peerId = edge.source === selectedNode.id ? edge.target : edge.source
-          return visibleNodes.find((node) => node.id === peerId)
+          if (edge.source !== selectedNode.id && edge.target !== selectedNode.id) {
+            return undefined
+          }
+
+          const direction = edge.source === selectedNode.id ? "outgoing" : "incoming"
+          const peerId = direction === "outgoing" ? edge.target : edge.source
+          const peer = visibleNodes.find((node) => node.id === peerId)
+          if (!peer) {
+            return undefined
+          }
+
+          return {
+            edge,
+            peer,
+            direction,
+          }
         })
-        .filter((node): node is KnowledgeGraphNode => Boolean(node))
-        .slice(0, 12)
+        .filter((item): item is SelectedConnection => Boolean(item))
+        .sort(
+          (a, b) =>
+            edgeWeight(b.edge) - edgeWeight(a.edge) ||
+            a.peer.label.localeCompare(b.peer.label, "zh-CN") ||
+            a.direction.localeCompare(b.direction, "en"),
+        )
     : []
+
+  const selectedNodeRelationTypes = [...new Set(selectedConnections.flatMap((connection) => edgeRelationTypes(connection.edge)))]
+  const selectedEvidenceDocuments = [...new Set(selectedConnections.flatMap((connection) => edgeEvidenceSlugs(connection.edge)))]
+    .map((slug) => ({
+      slug,
+      title: allDocumentLabels.get(slug) ?? slug.split("/").at(-1) ?? slug,
+    }))
+    .sort((a, b) => a.title.localeCompare(b.title, "zh-CN"))
+
+  const visibleRelationTypes = [...new Set(visibleEdges.flatMap((edge) => edgeRelationTypes(edge)))]
 
   return (
     <div className="graph-workspace">
@@ -336,19 +430,20 @@ export function KnowledgeGraphView({
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="\u641C\u7D22\u8282\u70B9\u540D\u79F0\u3001\u5206\u7EC4\u6216 entity key"
+              placeholder="搜索节点名称、分组或 entity key"
             />
           </div>
           <div className="badge-row">
-            <span className="badge">{`\u53EF\u89C1\u8282\u70B9 ${visibleNodes.length}`}</span>
-            <span className="badge">{`\u53EF\u89C1\u8FB9 ${visibleEdges.length}`}</span>
-            <span className="badge">{`\u5206\u7EC4 ${new Set(visibleNodes.map((node) => node.group)).size}`}</span>
+            <span className="badge">{`可见节点 ${visibleNodes.length}`}</span>
+            <span className="badge">{`可见边 ${visibleEdges.length}`}</span>
+            <span className="badge">{`分组 ${new Set(visibleNodes.map((node) => node.group)).size}`}</span>
+            <span className="badge">{`关系类型 ${visibleRelationTypes.length}`}</span>
           </div>
         </div>
 
         <div className="graph-controls">
           <div className="graph-control-group">
-            <span className="graph-control-label">{"\u89C6\u56FE\u8303\u56F4"}</span>
+            <span className="graph-control-label">视图范围</span>
             <div className="graph-pill-row">
               <button
                 type="button"
@@ -356,7 +451,7 @@ export function KnowledgeGraphView({
                 data-active={scope === "all"}
                 onClick={() => setScope("all")}
               >
-                {"\u5168\u56FE"}
+                全图
               </button>
               <button
                 type="button"
@@ -364,13 +459,13 @@ export function KnowledgeGraphView({
                 data-active={scope === "local"}
                 onClick={() => setScope("local")}
               >
-                {"\u5C40\u90E8\u90BB\u57DF"}
+                局部邻域
               </button>
             </div>
           </div>
 
           <div className="graph-control-group">
-            <span className="graph-control-label">{"\u5C40\u90E8\u6DF1\u5EA6"}</span>
+            <span className="graph-control-label">局部深度</span>
             <div className="graph-pill-row">
               <button
                 type="button"
@@ -378,7 +473,7 @@ export function KnowledgeGraphView({
                 data-active={localDepth === 1}
                 onClick={() => setLocalDepth(1)}
               >
-                {"1 \u8DF3"}
+                1 跳
               </button>
               <button
                 type="button"
@@ -386,13 +481,13 @@ export function KnowledgeGraphView({
                 data-active={localDepth === 2}
                 onClick={() => setLocalDepth(2)}
               >
-                {"2 \u8DF3"}
+                2 跳
               </button>
             </div>
           </div>
 
           <div className="graph-control-group graph-control-grow">
-            <span className="graph-control-label">{"\u5206\u7EC4\u7B5B\u9009"}</span>
+            <span className="graph-control-label">分组筛选</span>
             <div className="graph-pill-row">
               {allGroups.map((group) => (
                 <button
@@ -400,13 +495,38 @@ export function KnowledgeGraphView({
                   type="button"
                   className="graph-pill"
                   data-active={activeGroups.includes(group)}
-                  onClick={() => setActiveGroups((current) => toggleGroup(current, group))}
+                  onClick={() => setActiveGroups((current) => toggleSelection(current, group))}
                 >
                   {groupLabel(group)}
                 </button>
               ))}
               <button type="button" className="graph-pill" data-active="false" onClick={() => setActiveGroups(allGroups)}>
-                {"\u91CD\u7F6E"}
+                重置
+              </button>
+            </div>
+          </div>
+
+          <div className="graph-control-group graph-control-grow">
+            <span className="graph-control-label">关系类型</span>
+            <div className="graph-pill-row">
+              {allRelationTypes.map((relationType) => (
+                <button
+                  key={relationType}
+                  type="button"
+                  className="graph-pill"
+                  data-active={activeRelationTypes.includes(relationType)}
+                  onClick={() => setActiveRelationTypes((current) => toggleSelection(current, relationType))}
+                >
+                  {relationLabel(relationType)}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="graph-pill"
+                data-active="false"
+                onClick={() => setActiveRelationTypes(allRelationTypes)}
+              >
+                重置
               </button>
             </div>
           </div>
@@ -414,7 +534,7 @@ export function KnowledgeGraphView({
 
         <div className="graph-canvas-shell">
           {visibleNodes.length === 0 ? (
-            <div className="empty-state">{"\u6CA1\u6709\u547D\u4E2D\u8282\u70B9\uFF0C\u53EF\u4EE5\u6362\u4E2A\u5173\u952E\u8BCD\u6216\u91CD\u7F6E\u7B5B\u9009\u3002"}</div>
+            <div className="empty-state">没有命中节点，可以换个关键词或重置筛选。</div>
           ) : (
             <svg className="graph-canvas" viewBox={`0 0 ${layout.width} ${layout.height}`} role="img">
               {visibleEdges.map((edge) => {
@@ -430,7 +550,7 @@ export function KnowledgeGraphView({
 
                 return (
                   <line
-                    key={`${edge.source}-${edge.target}`}
+                    key={`${edge.source}-${edge.target}-${edgeRelationTypes(edge).join(",")}`}
                     className="graph-edge"
                     data-highlighted={highlighted}
                     x1={source.x}
@@ -473,61 +593,124 @@ export function KnowledgeGraphView({
         <section className="panel">
           <div className="panel-header">
             <div>
-              <h2>{"\u8282\u70B9\u8BE6\u60C5"}</h2>
-              <p>{"\u70B9\u51FB\u56FE\u8C31\u4E2D\u7684\u8282\u70B9\u53EF\u4EE5\u805A\u7126\u3001\u8DF3\u8F6C\u6216\u67E5\u770B\u90BB\u57DF\u3002"}</p>
+              <h2>节点详情</h2>
+              <p>点击图谱中的节点可以聚焦、筛关系、查看证据并直接跳转到对应页面。</p>
             </div>
           </div>
           {selectedNode ? (
             <div className="page-stack">
               <div className="result-card">
                 <h3>{selectedNode.label}</h3>
-                <p>{`\u5206\u7EC4: ${groupLabel(selectedNode.group)}`}</p>
+                <p>{`分组: ${groupLabel(selectedNode.group)}`}</p>
                 <div className="badge-row">
-                  <span className="badge">{`\u8FDE\u63A5\u6570 ${degreeMap.get(selectedNode.id) ?? 0}`}</span>
-                  <span className="badge">{`\u6743\u91CD ${selectedNode.weight}`}</span>
+                  <span className="badge">{`连接数 ${degreeMap.get(selectedNode.id) ?? 0}`}</span>
+                  <span className="badge">{`权重 ${selectedNode.weight}`}</span>
+                  <span className="badge">{`关系类型 ${selectedNodeRelationTypes.length}`}</span>
                 </div>
+                {selectedNodeRelationTypes.length > 0 && (
+                  <div className="badge-row">
+                    {selectedNodeRelationTypes.map((relationType) => (
+                      <span key={relationType} className="badge">
+                        {relationLabel(relationType)}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <div className="action-row">
                   <Link href={graphFocusHref(sourceId, mode, selectedNode)} className="ghost-link" prefetch={false}>
-                    {"\u56FA\u5B9A\u5230\u5F53\u524D\u8282\u70B9"}
+                    固定到当前节点
                   </Link>
                   {selectedNodeHref && (
                     <Link href={selectedNodeHref} className="ghost-link" prefetch={false}>
-                      {mode === "knowledge" ? "\u6253\u5F00\u77E5\u8BC6\u5206\u6790" : "\u6253\u5F00\u6587\u6863"}
+                      {mode === "knowledge" ? "打开知识分析" : "打开文档"}
                     </Link>
                   )}
                   <button type="button" className="graph-inline-button" onClick={() => setScope("local")}>
-                    {"\u53EA\u770B\u8FD9\u4E2A\u8282\u70B9\u7684\u90BB\u57DF"}
+                    只看这个节点的邻域
                   </button>
                 </div>
               </div>
 
               <div className="result-card">
-                <h3>{"\u8282\u70B9\u6807\u8BC6"}</h3>
+                <h3>节点标识</h3>
                 <p>{selectedNode.entityKey ?? selectedNode.slug ?? selectedNode.id}</p>
               </div>
 
               <div className="result-card">
-                <h3>{"\u76F8\u90BB\u8282\u70B9"}</h3>
+                <h3>连接关系</h3>
                 <div className="result-list">
-                  {selectedNeighbors.map((node) => (
-                    <button
-                      key={node.id}
-                      type="button"
-                      className="graph-node-button"
-                      onClick={() => setSelectedNodeId(node.id)}
+                  {selectedConnections.map((connection) => {
+                    const peerHref = graphNodeHref(sourceId, mode, connection.peer)
+                    const primaryEvidence = edgeEvidenceSlugs(connection.edge)[0]
+                    return (
+                      <div
+                        key={`${selectedNode.id}-${connection.peer.id}-${edgeRelationTypes(connection.edge).join(",")}`}
+                        className="graph-connection-card"
+                      >
+                        <div className="graph-connection-header">
+                          <div>
+                            <strong>{connection.peer.label}</strong>
+                            <small>{`${connection.direction === "outgoing" ? "向外连接" : "向内连接"} · ${groupLabel(connection.peer.group)}`}</small>
+                          </div>
+                          <span className="badge">{`边权重 ${edgeWeight(connection.edge)}`}</span>
+                        </div>
+                        <div className="badge-row">
+                          {edgeRelationTypes(connection.edge).map((relationType) => (
+                            <span key={`${connection.peer.id}-${relationType}`} className="badge">
+                              {relationLabel(relationType)}
+                            </span>
+                          ))}
+                        </div>
+                        <div className="action-row">
+                          <button
+                            type="button"
+                            className="graph-inline-button"
+                            onClick={() => setSelectedNodeId(connection.peer.id)}
+                          >
+                            聚焦节点
+                          </button>
+                          {peerHref && (
+                            <Link href={peerHref} className="ghost-link" prefetch={false}>
+                              {mode === "knowledge" ? "打开知识分析" : "打开文档"}
+                            </Link>
+                          )}
+                          {primaryEvidence && (
+                            <Link href={documentHref(sourceId, primaryEvidence)} className="ghost-link" prefetch={false}>
+                              打开证据
+                            </Link>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {selectedConnections.length === 0 && (
+                    <div className="empty-state">当前节点在可见范围内没有连接关系。</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="result-card">
+                <h3>证据文档</h3>
+                <div className="result-list">
+                  {selectedEvidenceDocuments.map((document) => (
+                    <Link
+                      key={document.slug}
+                      href={documentHref(sourceId, document.slug)}
+                      className="graph-evidence-link"
+                      prefetch={false}
                     >
-                      <span>{node.label}</span>
-                      <small>{groupLabel(node.group)}</small>
-                    </button>
+                      <strong>{document.title}</strong>
+                      <small>{document.slug}</small>
+                    </Link>
                   ))}
-                  {selectedNeighbors.length === 0 && (
-                    <div className="empty-state">{"\u5F53\u524D\u8282\u70B9\u5728\u53EF\u89C1\u8303\u56F4\u5185\u6CA1\u6709\u76F8\u90BB\u8282\u70B9\u3002"}</div>
+                  {selectedEvidenceDocuments.length === 0 && (
+                    <div className="empty-state">当前节点没有可直接跳转的证据文档。</div>
                   )}
                 </div>
               </div>
             </div>
           ) : (
-            <div className="empty-state">{"\u5F53\u524D\u6CA1\u6709\u53EF\u5C55\u793A\u7684\u8282\u70B9\u3002"}</div>
+            <div className="empty-state">当前没有可展示的节点。</div>
           )}
         </section>
       </aside>

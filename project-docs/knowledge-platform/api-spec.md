@@ -59,6 +59,8 @@
 
 - 优先读 PostgreSQL
 - 若数据库不可用或该知识源未持久化，则回退到内存快照
+- 支持 `mode=documents|knowledge`
+- `edges` 会携带聚合后的 `relationTypes`、`evidenceDocumentSlugs` 和 `weight`
 
 ### `GET /api/source/:sourceId/related?slug=...`
 
