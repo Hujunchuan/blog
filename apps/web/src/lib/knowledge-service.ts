@@ -133,5 +133,10 @@ export async function invalidateSnapshot(sourceId?: string) {
 }
 
 export function documentUrl(sourceId: string, document: Pick<ParsedKnowledgeDocument, "slug">) {
-  return `/source/${sourceId}/doc/${document.slug}`
+  const encodedSlug = document.slug
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/")
+
+  return `/source/${encodeURIComponent(sourceId)}/doc/${encodedSlug}`
 }

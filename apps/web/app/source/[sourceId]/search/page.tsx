@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
-import { getSource, searchDocuments } from "@/lib/knowledge-service"
+import { documentUrl, getSource, searchDocuments } from "@/lib/knowledge-service"
 
 export default async function SearchPage({
   params,
@@ -39,7 +39,9 @@ export default async function SearchPage({
             {results.map((document) => (
               <article className="result-card" key={document.slug}>
                 <h3>
-                  <Link href={`/source/${sourceId}/doc/${document.slug}`}>{document.title}</Link>
+                  <Link href={documentUrl(sourceId, document)} prefetch={false}>
+                    {document.title}
+                  </Link>
                 </h3>
                 <p>{document.summary}</p>
                 <div className="tag-row">

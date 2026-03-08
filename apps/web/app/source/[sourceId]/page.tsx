@@ -2,7 +2,14 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { ExplorerTree } from "@/components/explorer-tree"
 import { StatGrid } from "@/components/stat-grid"
-import { getExplorerTree, getGraph, getSource, getSourceOverview, searchDocuments } from "@/lib/knowledge-service"
+import {
+  documentUrl,
+  getExplorerTree,
+  getGraph,
+  getSource,
+  getSourceOverview,
+  searchDocuments,
+} from "@/lib/knowledge-service"
 
 export default async function SourcePage({ params }: { params: Promise<{ sourceId: string }> }) {
   const { sourceId } = await params
@@ -49,7 +56,9 @@ export default async function SourcePage({ params }: { params: Promise<{ sourceI
                 {overview.recentDocuments.map((document) => (
                   <article key={document.slug} className="result-card">
                     <h3>
-                      <Link href={`/source/${sourceId}/doc/${document.slug}`}>{document.title}</Link>
+                      <Link href={documentUrl(sourceId, document)} prefetch={false}>
+                        {document.title}
+                      </Link>
                     </h3>
                     <p>{document.summary}</p>
                     <small>{new Date(document.updatedAt).toLocaleString("zh-CN")}</small>

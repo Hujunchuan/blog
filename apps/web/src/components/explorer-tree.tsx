@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { ExplorerNode } from "@repo/core/types"
+import { documentUrl } from "@/lib/knowledge-service"
 
 interface ExplorerTreeProps {
   sourceId: string
@@ -10,7 +11,9 @@ function ExplorerBranch({ sourceId, node }: { sourceId: string; node: ExplorerNo
   if (!node.isFolder) {
     return (
       <li>
-        <Link href={`/source/${sourceId}/doc/${node.slug}`}>{node.name}</Link>
+        <Link href={documentUrl(sourceId, { slug: node.slug ?? node.path })} prefetch={false}>
+          {node.name}
+        </Link>
       </li>
     )
   }
