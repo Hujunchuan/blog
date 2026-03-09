@@ -49,6 +49,7 @@ type GraphVariant = "local" | "global"
 
 type GraphNodeData = KnowledgeGraphNode &
   SimulationNodeDatum & {
+    sourceId: string
     radius: number
     color: string
     pinned: boolean
@@ -141,8 +142,17 @@ const groupLabels: Record<string, string> = {
 groupLabels.workspace = "工作台"
 groupLabels.reference = "外部引用"
 
-function workspaceGraphNodeId(workspace: WorkspaceView, node: WorkspaceView["nodes"][number]) {
-  return node.entityKey ?? node.documentSlug ?? `workspace:${workspace.id}:node:${node.id}`
+function workspaceGraphNodeId(
+  currentSourceId: string,
+  workspace: WorkspaceView,
+  node: WorkspaceView["nodes"][number],
+) {
+  const baseId = node.entityKey ?? node.documentSlug ?? `workspace:${workspace.id}:node:${node.id}`
+  if (node.sourceId && node.sourceId !== currentSourceId) {
+    return `external:${node.sourceId}:${baseId}`
+  }
+
+  return baseId
 }
 
 function mergeGraphWithWorkspace(
@@ -151,6 +161,7 @@ function mergeGraphWithWorkspace(
     edges: KnowledgeGraphEdge[]
   },
   workspace: WorkspaceView | null | undefined,
+  currentSourceId: string,
 ): WorkspaceOverlayResult {
   if (!workspace) {
     return {
@@ -167,7 +178,8 @@ function mergeGraphWithWorkspace(
   const workspaceNodeMap = new Map<string, string>()
 
   for (const workspaceNode of workspace.nodes) {
-    const graphNodeId = workspaceGraphNodeId(workspace, workspaceNode)
+    const graphNodeId = workspaceGraphNodeId(currentSourceId, workspace, workspaceNode)
+    const isExternalSource = Boolean(workspaceNode.sourceId && workspaceNode.sourceId !== currentSourceId)
     workspaceNodeMap.set(workspaceNode.id, graphNodeId)
     workspaceNodeIndex.set(graphNodeId, workspaceNode)
     nodeOverlay.set(graphNodeId, {
@@ -183,7 +195,7 @@ function mergeGraphWithWorkspace(
         label: workspaceNode.label,
         slug: workspaceNode.documentSlug,
         entityKey: workspaceNode.entityKey,
-        group: workspaceNode.nodeType === "reference" ? "reference" : "workspace",
+        group: workspaceNode.nodeType === "reference" || isExternalSource ? "reference" : "workspace",
         weight: workspaceNode.pinned ? 2 : 1,
       })
     }
@@ -397,6 +409,7 @@ function buildRenderGraph(
   focusNodeId: string,
   depth: Depth,
   variant: GraphVariant,
+  currentSourceId: string,
   nodeOverlay: Map<string, WorkspaceNodeOverlay>,
   workspaceNodeMap: Map<string, WorkspaceView["nodes"][number]>,
 ) {
@@ -437,16 +450,18 @@ function buildRenderGraph(
     .filter((node) => keptIds.has(node.id))
     .map((node) => {
       const overlay = nodeOverlay.get(node.id)
+      const workspaceNode = workspaceNodeMap.get(node.id)
       const x = typeof overlay?.x === "number" ? overlay.x : node.id === focusNodeId ? 0 : undefined
       const y = typeof overlay?.y === "number" ? overlay.y : node.id === focusNodeId ? 0 : undefined
 
       return {
         ...node,
+        sourceId: workspaceNode?.sourceId ?? currentSourceId,
         radius:
           (node.id === focusNodeId ? 12 : 7.5) + Math.min(node.weight, 10) * (node.id === focusNodeId ? 0.35 : 0.18),
         color: colorForGroup(node.group),
         pinned: Boolean(overlay?.pinned),
-        workspaceNodeId: workspaceNodeMap.get(node.id)?.id,
+        workspaceNodeId: workspaceNode?.id,
         x,
         y,
         fx: overlay?.pinned && typeof x === "number" ? x : undefined,
@@ -580,7 +595,7 @@ export function QuartzGraphView({
   const [noteBody, setNoteBody] = useState("")
   const [relationTarget, setRelationTarget] = useState("")
   const [rendererReadyTick, setRendererReadyTick] = useState(0)
-  const workspaceOverlay = useMemo(() => mergeGraphWithWorkspace(graph, workspace), [graph, workspace])
+  const workspaceOverlay = useMemo(() => mergeGraphWithWorkspace(graph, workspace, sourceId), [graph, sourceId, workspace])
   const effectiveGraph = workspaceOverlay.graph
   const graphPickerId = useId()
   const relationPickerId = useId()
@@ -658,6 +673,7 @@ export function QuartzGraphView({
       focusNodeId,
       depth,
       variant,
+      sourceId,
       workspaceOverlay.nodeOverlay,
       workspaceOverlay.workspaceNodeMap,
     )
@@ -666,6 +682,7 @@ export function QuartzGraphView({
     effectiveGraph.edges,
     effectiveGraph.nodes,
     focusNodeId,
+    sourceId,
     variant,
     workspaceOverlay.nodeOverlay,
     workspaceOverlay.workspaceNodeMap,
@@ -763,30 +780,35 @@ export function QuartzGraphView({
     setSearchValue(match.label)
   }
 
-  const handleSaveWorkspace = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!renderGraph || workspaceSaving) {
-      return
+  const buildWorkspaceCaptureNodes = (resolvePinned: (node: GraphNodeData) => boolean) => {
+    if (!renderGraph) {
+      return []
     }
 
-    const trimmedName = workspaceName.trim() || buildWorkspaceSeedName(mode, selectedNode ?? rootNode)
-    const nodes = renderGraph.nodes.map((node) => ({
+    return renderGraph.nodes.map((node) => ({
       graphId: node.id,
+      sourceId: node.sourceId,
       nodeType: workspaceNodeTypeForGraphNode(node),
       entityKey: node.entityKey,
       documentSlug: node.slug,
       label: node.label,
       x: Number((node.x ?? 0).toFixed(2)),
       y: Number((node.y ?? 0).toFixed(2)),
-      pinned: node.pinned || node.id === focusNodeId,
+      pinned: resolvePinned(node),
       collapsed: false,
       metadata: {
         group: node.group,
         weight: node.weight,
       },
     }))
+  }
 
-    const edges = renderGraph.edges.map((edge) => ({
+  const buildWorkspaceCaptureEdges = () => {
+    if (!renderGraph) {
+      return []
+    }
+
+    return renderGraph.edges.map((edge) => ({
       fromGraphId: edge.source.id,
       toGraphId: edge.target.id,
       edgeType: "manual" as const,
@@ -796,6 +818,17 @@ export function QuartzGraphView({
         evidenceDocumentSlugs: edge.evidenceDocumentSlugs ?? [],
       },
     }))
+  }
+
+  const handleSaveWorkspace = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!renderGraph || workspaceSaving) {
+      return
+    }
+
+    const trimmedName = workspaceName.trim() || buildWorkspaceSeedName(mode, selectedNode ?? rootNode)
+    const nodes = buildWorkspaceCaptureNodes((node) => node.pinned || node.id === focusNodeId)
+    const edges = buildWorkspaceCaptureEdges()
 
     setWorkspaceSaving(true)
     setWorkspaceMessage("正在保存当前视图...")
@@ -840,32 +873,8 @@ export function QuartzGraphView({
       return
     }
 
-    const nodes = renderGraph.nodes.map((node) => ({
-      graphId: node.id,
-      nodeType: workspaceNodeTypeForGraphNode(node),
-      entityKey: node.entityKey,
-      documentSlug: node.slug,
-      label: node.label,
-      x: Number((node.x ?? 0).toFixed(2)),
-      y: Number((node.y ?? 0).toFixed(2)),
-      pinned: Boolean(node.pinned),
-      collapsed: false,
-      metadata: {
-        group: node.group,
-        weight: node.weight,
-      },
-    }))
-
-    const edges = renderGraph.edges.map((edge) => ({
-      fromGraphId: edge.source.id,
-      toGraphId: edge.target.id,
-      edgeType: "manual" as const,
-      weight: edgeWeight(edge),
-      metadata: {
-        relationTypes: edge.relationTypes ?? [],
-        evidenceDocumentSlugs: edge.evidenceDocumentSlugs ?? [],
-      },
-    }))
+    const nodes = buildWorkspaceCaptureNodes((node) => Boolean(node.pinned))
+    const edges = buildWorkspaceCaptureEdges()
 
     setWorkspaceSaving(true)
     setWorkspaceMessage("正在更新当前工作台...")
@@ -909,32 +918,10 @@ export function QuartzGraphView({
       return
     }
 
-    const nodes = renderGraph.nodes.map((node) => ({
-      graphId: node.id,
-      nodeType: workspaceNodeTypeForGraphNode(node),
-      entityKey: node.entityKey,
-      documentSlug: node.slug,
-      label: node.label,
-      x: Number((node.x ?? 0).toFixed(2)),
-      y: Number((node.y ?? 0).toFixed(2)),
-      pinned: node.id === selectedNode.id ? !selectedNode.pinned : Boolean(node.pinned),
-      collapsed: false,
-      metadata: {
-        group: node.group,
-        weight: node.weight,
-      },
-    }))
-
-    const edges = renderGraph.edges.map((edge) => ({
-      fromGraphId: edge.source.id,
-      toGraphId: edge.target.id,
-      edgeType: "manual" as const,
-      weight: edgeWeight(edge),
-      metadata: {
-        relationTypes: edge.relationTypes ?? [],
-        evidenceDocumentSlugs: edge.evidenceDocumentSlugs ?? [],
-      },
-    }))
+    const nodes = buildWorkspaceCaptureNodes((node) =>
+      node.id === selectedNode.id ? !selectedNode.pinned : Boolean(node.pinned),
+    )
+    const edges = buildWorkspaceCaptureEdges()
 
     setWorkspaceSaving(true)
     setWorkspaceMessage(selectedNode.pinned ? "正在释放节点..." : "正在固定节点...")
@@ -1690,6 +1677,7 @@ export function QuartzGraphView({
             <div className="badge-row">
               <span className="badge">{`连接度 ${renderGraph.degreeMap.get(selectedNode.id) ?? 0}`}</span>
               <span className="badge">{`权重 ${selectedNode.weight}`}</span>
+              {selectedNode.sourceId !== sourceId && <span className="badge">{`来源 ${selectedNode.sourceId}`}</span>}
             </div>
             <div className="action-row">
               <button
@@ -1701,8 +1689,12 @@ export function QuartzGraphView({
               >
                 设为中心
               </button>
-              {analysisHref(sourceId, mode, selectedNode) && (
-                <Link href={analysisHref(sourceId, mode, selectedNode)!} className="ghost-link" prefetch={false}>
+              {analysisHref(selectedNode.sourceId, mode, selectedNode) && (
+                <Link
+                  href={analysisHref(selectedNode.sourceId, mode, selectedNode)!}
+                  className="ghost-link"
+                  prefetch={false}
+                >
                   打开节点
                 </Link>
               )}
@@ -1720,27 +1712,27 @@ export function QuartzGraphView({
               )}
             </div>
             <div className="action-row">
-              {analysisSectionHref(sourceId, mode, selectedNode, "related") && (
+              {analysisSectionHref(selectedNode.sourceId, mode, selectedNode, "related") && (
                 <Link
-                  href={analysisSectionHref(sourceId, mode, selectedNode, "related")!}
+                  href={analysisSectionHref(selectedNode.sourceId, mode, selectedNode, "related")!}
                   className="ghost-link"
                   prefetch={false}
                 >
                   相关关系
                 </Link>
               )}
-              {analysisSectionHref(sourceId, mode, selectedNode, "impact") && (
+              {analysisSectionHref(selectedNode.sourceId, mode, selectedNode, "impact") && (
                 <Link
-                  href={analysisSectionHref(sourceId, mode, selectedNode, "impact")!}
+                  href={analysisSectionHref(selectedNode.sourceId, mode, selectedNode, "impact")!}
                   className="ghost-link"
                   prefetch={false}
                 >
                   影响分析
                 </Link>
               )}
-              {analysisSectionHref(sourceId, mode, selectedNode, "evidence") && (
+              {analysisSectionHref(selectedNode.sourceId, mode, selectedNode, "evidence") && (
                 <Link
-                  href={analysisSectionHref(sourceId, mode, selectedNode, "evidence")!}
+                  href={analysisSectionHref(selectedNode.sourceId, mode, selectedNode, "evidence")!}
                   className="ghost-link"
                   prefetch={false}
                 >

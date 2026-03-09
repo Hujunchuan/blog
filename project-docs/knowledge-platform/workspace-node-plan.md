@@ -126,6 +126,7 @@ Suggested fields:
 
 - `id`
 - `workspace_view_id`
+- `source_id`
 - `node_type`
 - `entity_key`
 - `document_slug`
@@ -316,3 +317,18 @@ The first workspace-node phase is complete when:
 ## Remaining W3 Gaps
 
 - workspace editing still works as full capture replacement for layout and pin changes, not fine-grained node mutation
+
+## Current W4 Slice Landed
+
+- workspace nodes are now source-aware through `source_id`
+- workspace capture and refresh now preserve per-node source ownership
+- workspace `source_scope` is now derived from all nodes included in a saved view
+- graph overlays can now distinguish same-source nodes from external-source nodes
+- external-source workspace nodes no longer collide with current-source entity keys or document slugs
+- graph-side node jumps now open the node in its owning source instead of always using the current graph page source
+
+## Remaining W4 Gaps
+
+- graph overlays still render external nodes as lightweight references rather than loading their full source graph neighborhood
+- workspace creation still starts from a single graph page and does not yet provide a cross-source node picker
+- cross-source search and cross-source graph assembly are still pending

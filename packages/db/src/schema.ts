@@ -127,6 +127,7 @@ export const createWorkspaceNodesTableSql = `
 CREATE TABLE IF NOT EXISTS workspace_nodes (
   id BIGSERIAL PRIMARY KEY,
   workspace_view_id BIGINT NOT NULL REFERENCES workspace_views(id) ON DELETE CASCADE,
+  source_id TEXT REFERENCES sources(id) ON DELETE SET NULL,
   node_type TEXT NOT NULL,
   entity_key TEXT,
   document_slug TEXT,
@@ -144,8 +145,14 @@ CREATE TABLE IF NOT EXISTS workspace_nodes (
 
 export const createWorkspaceNodeIndexesSql = `
 CREATE INDEX IF NOT EXISTS workspace_nodes_view_id_idx ON workspace_nodes(workspace_view_id);
+CREATE INDEX IF NOT EXISTS workspace_nodes_source_id_idx ON workspace_nodes(workspace_view_id, source_id);
 CREATE INDEX IF NOT EXISTS workspace_nodes_entity_key_idx ON workspace_nodes(workspace_view_id, entity_key);
 CREATE INDEX IF NOT EXISTS workspace_nodes_document_slug_idx ON workspace_nodes(workspace_view_id, document_slug);
+`
+
+export const alterWorkspaceNodesTableSql = `
+ALTER TABLE workspace_nodes
+ADD COLUMN IF NOT EXISTS source_id TEXT REFERENCES sources(id) ON DELETE SET NULL;
 `
 
 export const createWorkspaceEdgesTableSql = `
@@ -202,6 +209,7 @@ export const initialSchemaSql = [
   createWorkspaceViewsTableSql,
   createWorkspaceViewIndexesSql,
   createWorkspaceNodesTableSql,
+  alterWorkspaceNodesTableSql,
   createWorkspaceNodeIndexesSql,
   createWorkspaceEdgesTableSql,
   createWorkspaceEdgeIndexesSql,

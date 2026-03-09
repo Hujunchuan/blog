@@ -219,6 +219,7 @@ export interface WorkspaceViewSummary {
 export interface WorkspaceNode {
   id: string
   workspaceViewId: string
+  sourceId?: string
   nodeType: WorkspaceNodeType
   entityKey?: string
   documentSlug?: string
@@ -274,6 +275,7 @@ export interface CreateWorkspaceViewInput {
 
 export interface CreateWorkspaceNodeInput {
   workspaceViewId: string
+  sourceId?: string
   nodeType: WorkspaceNodeType
   entityKey?: string
   documentSlug?: string

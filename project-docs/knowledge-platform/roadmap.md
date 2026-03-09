@@ -78,7 +78,9 @@ Status:
 - saved node positions, pinned state, and manual overlay nodes or edges can now be layered onto the extracted graph
 - `W3` has started with save-current-view support on the graph page
 - current write support can now create a workspace, refresh the current workspace from the visible subgraph, toggle node pin state, add node notes, and add manual relations
-- the remaining gap is that layout and pin edits still persist through full capture replacement rather than fine-grained mutation
+- `W4` has started with source-aware workspace nodes and multi-source source-scope capture
+- graph overlays can now preserve external-source workspace nodes without colliding with current-source graph ids
+- the remaining gap is that layout and pin edits still persist through full capture replacement rather than fine-grained mutation, and true cross-source graph assembly is still pending
 
 Milestones:
 

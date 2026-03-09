@@ -1,7 +1,8 @@
-import { isDatabaseConfigured, replaceWorkspaceCapture } from "@repo/db/index"
+import { isDatabaseConfigured, replaceWorkspaceCapture, upsertSource, withPgClient } from "@repo/db/index"
 import { WorkspaceEdgeType, WorkspaceNodeType } from "@repo/core/types"
 import { NextResponse } from "next/server"
 import { getWorkspaceView } from "@/lib/knowledge-service"
+import { getKnowledgeSourcesConfig } from "@/lib/config"
 
 export const dynamic = "force-dynamic"
 
@@ -15,6 +16,7 @@ type ReplaceWorkspaceCapturePayload = {
   depth?: number
   nodes?: Array<{
     graphId?: string
+    sourceId?: string
     nodeType?: WorkspaceNodeType
     entityKey?: string
     documentSlug?: string
@@ -42,6 +44,39 @@ function asFiniteNumber(value: unknown, fallback = 0) {
 
 function asRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+}
+
+function collectSourceIds(
+  currentSourceId: string,
+  nodes: Iterable<{
+    sourceId?: string
+  }>,
+) {
+  const sourceIds = new Set<string>([currentSourceId])
+  for (const node of nodes) {
+    const sourceId = node.sourceId?.trim()
+    if (sourceId) {
+      sourceIds.add(sourceId)
+    }
+  }
+
+  return [...sourceIds]
+}
+
+async function ensureSourceRecords(sourceIds: string[]) {
+  const configuredSources = await getKnowledgeSourcesConfig()
+  const sourceMap = new Map(configuredSources.map((source) => [source.id, source]))
+
+  await withPgClient(async (client) => {
+    for (const sourceId of sourceIds) {
+      const source = sourceMap.get(sourceId)
+      if (!source) {
+        continue
+      }
+
+      await upsertSource(client, source)
+    }
+  })
 }
 
 export async function GET(_: Request, context: { params: Promise<{ workspaceId: string }> }) {
@@ -139,12 +174,15 @@ export async function POST(request: Request, context: { params: Promise<{ worksp
       }
     }
 
+    const workspaceSourceIds = collectSourceIds(sourceId, uniqueNodes.values())
+    await ensureSourceRecords(workspaceSourceIds)
+
     const workspace = await replaceWorkspaceCapture(workspaceId, {
       view: {
         ...(payload.name?.trim() ? { name: payload.name.trim() } : {}),
         ...(typeof payload.description === "string" ? { description: payload.description.trim() || undefined } : {}),
         sourceScope: {
-          sourceIds: [sourceId],
+          sourceIds: workspaceSourceIds,
         },
         layoutMode: payload.layoutMode === "global" ? "global" : "local",
         metadata: {
@@ -155,6 +193,7 @@ export async function POST(request: Request, context: { params: Promise<{ worksp
       },
       nodes: [...uniqueNodes.values()].map((node) => ({
         graphId: node.graphId!,
+        sourceId: node.sourceId?.trim() || undefined,
         nodeType: node.nodeType ?? "synthetic",
         entityKey: node.entityKey?.trim() || undefined,
         documentSlug: node.documentSlug?.trim() || undefined,

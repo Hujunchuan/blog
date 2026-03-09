@@ -57,6 +57,7 @@ type WorkspaceViewRow = {
 type WorkspaceNodeRow = {
   id: string
   workspace_view_id: string
+  source_id: string | null
   node_type: WorkspaceNode["nodeType"]
   entity_key: string | null
   document_slug: string | null
@@ -123,6 +124,7 @@ function mapWorkspaceNodeRow(row: WorkspaceNodeRow): WorkspaceNode {
   return {
     id: row.id,
     workspaceViewId: row.workspace_view_id,
+    sourceId: row.source_id ?? undefined,
     nodeType: row.node_type,
     entityKey: row.entity_key ?? undefined,
     documentSlug: row.document_slug ?? undefined,
@@ -208,6 +210,7 @@ export async function getWorkspaceView(workspaceViewId: string): Promise<Workspa
         SELECT
           id,
           workspace_view_id,
+          source_id,
           node_type,
           entity_key,
           document_slug,
@@ -302,6 +305,7 @@ export async function createWorkspaceNode(input: CreateWorkspaceNodeInput) {
       `
         INSERT INTO workspace_nodes (
           workspace_view_id,
+          source_id,
           node_type,
           entity_key,
           document_slug,
@@ -314,10 +318,11 @@ export async function createWorkspaceNode(input: CreateWorkspaceNodeInput) {
           metadata,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, NOW())
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, NOW())
         RETURNING
           id,
           workspace_view_id,
+          source_id,
           node_type,
           entity_key,
           document_slug,
@@ -333,6 +338,7 @@ export async function createWorkspaceNode(input: CreateWorkspaceNodeInput) {
       `,
       [
         input.workspaceViewId,
+        input.sourceId ?? null,
         input.nodeType,
         input.entityKey ?? null,
         input.documentSlug ?? null,
@@ -494,6 +500,7 @@ export async function createWorkspaceCapture(input: CreateWorkspaceCaptureInput)
           `
             INSERT INTO workspace_nodes (
               workspace_view_id,
+              source_id,
               node_type,
               entity_key,
               document_slug,
@@ -506,10 +513,11 @@ export async function createWorkspaceCapture(input: CreateWorkspaceCaptureInput)
               metadata,
               updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, NOW())
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, NOW())
             RETURNING
               id,
               workspace_view_id,
+              source_id,
               node_type,
               entity_key,
               document_slug,
@@ -525,6 +533,7 @@ export async function createWorkspaceCapture(input: CreateWorkspaceCaptureInput)
           `,
           [
             view.id,
+            node.sourceId ?? null,
             node.nodeType,
             node.entityKey ?? null,
             node.documentSlug ?? null,
@@ -667,6 +676,7 @@ export async function replaceWorkspaceCapture(
           `
             INSERT INTO workspace_nodes (
               workspace_view_id,
+              source_id,
               node_type,
               entity_key,
               document_slug,
@@ -679,10 +689,11 @@ export async function replaceWorkspaceCapture(
               metadata,
               updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, NOW())
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, NOW())
             RETURNING
               id,
               workspace_view_id,
+              source_id,
               node_type,
               entity_key,
               document_slug,
@@ -698,6 +709,7 @@ export async function replaceWorkspaceCapture(
           `,
           [
             workspaceViewId,
+            node.sourceId ?? null,
             node.nodeType,
             node.entityKey ?? null,
             node.documentSlug ?? null,
