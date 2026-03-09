@@ -24,6 +24,18 @@ import {
 import { KnowledgeGraphEdge, KnowledgeGraphMode, KnowledgeGraphNode } from "@repo/core/types"
 
 const palette = ["#6b7c88", "#b7793f", "#62824b", "#8b6075", "#4d7190", "#7d6948"]
+const groupColorMap: Partial<Record<string, string>> = {
+  root: "#2f5d73",
+  document: "#6b7c88",
+  tag: "#8a6f4d",
+  concept: "#567663",
+  person: "#8b6075",
+  project: "#4d7190",
+  meeting: "#907253",
+  decision: "#706894",
+  task: "#6d8751",
+  practice: "#4b7d78",
+}
 const LOCAL_CANVAS_WIDTH = 960
 const LOCAL_CANVAS_HEIGHT = 560
 const GLOBAL_CANVAS_WIDTH = 1400
@@ -90,7 +102,7 @@ function hashValue(value: string) {
 }
 
 function colorForGroup(group: string) {
-  return palette[hashValue(group) % palette.length]
+  return groupColorMap[group] ?? palette[hashValue(group) % palette.length]
 }
 
 function edgeWeight(edge: KnowledgeGraphEdge | GraphLinkData) {
@@ -277,8 +289,17 @@ function buildRenderGraph(
   } satisfies RenderGraph
 }
 
-function drawNode(gfx: Graphics, radius: number, fillColor: string, highlighted: boolean) {
+function drawNode(gfx: Graphics, radius: number, fillColor: string, highlighted: boolean, anchored: boolean) {
   gfx.clear()
+  if (anchored) {
+    gfx.circle(0, 0, radius + 4.5)
+    gfx.fill({ color: new Color(fillColor), alpha: 0.08 })
+    gfx.stroke({
+      width: highlighted ? 1.8 : 1.2,
+      color: new Color(fillColor),
+      alpha: highlighted ? 0.56 : 0.28,
+    })
+  }
   gfx.circle(0, 0, radius)
   gfx.fill(new Color(fillColor))
   gfx.stroke({
@@ -647,12 +668,18 @@ export function QuartzGraphView({
         gfx.clear()
         gfx.moveTo(edge.source.x ?? 0, edge.source.y ?? 0)
         gfx.lineTo(edge.target.x ?? 0, edge.target.y ?? 0)
+        const touchesActive = Boolean(
+          selectedNodeIdRef.current &&
+            (edge.source.id === selectedNodeIdRef.current || edge.target.id === selectedNodeIdRef.current),
+        )
+        const touchesFocus = edge.source.id === focusNodeId || edge.target.id === focusNodeId
         gfx.stroke({
-          width:
-            edge.source.id === focusNodeId || edge.target.id === focusNodeId
-              ? 1.5 + Math.min(edge.weight, 4) * 0.15
-              : 1,
-          color: new Color("#8d979a"),
+          width: touchesActive
+            ? 1.9 + Math.min(edge.weight, 4) * 0.16
+            : touchesFocus
+              ? 1.35 + Math.min(edge.weight, 4) * 0.12
+              : 0.92,
+          color: new Color(touchesActive ? "#486d8d" : touchesFocus ? "#71858f" : "#9da7ab"),
           alpha: gfx.alpha || 0.22,
         })
       }
@@ -681,21 +708,24 @@ export function QuartzGraphView({
       nodeRenderRef.current.forEach(({ node, gfx, label }) => {
         const isActive = node.id === activeNodeId
         const isNeighbor = neighbors.has(node.id)
+        const isAnchor = node.id === focusNodeId
+        const isProminent = isAnchor || node.group === "root" || node.weight >= (variant === "global" ? 9 : 6)
         const dimmed = Boolean(activeNodeId) && !isActive && !isNeighbor
-        gfx.alpha = dimmed ? 0.34 : 1
-        gfx.scale.set(isActive ? 1.08 : isNeighbor ? 1.02 : 1)
-        drawNode(gfx, node.radius, node.color, isActive)
-        label.alpha = isActive || isNeighbor ? 1 : 0.16
+        gfx.alpha = dimmed ? 0.22 : isNeighbor ? 0.94 : 1
+        gfx.scale.set(isActive ? 1.12 : isNeighbor ? 1.05 : isAnchor ? 1.03 : 1)
+        drawNode(gfx, node.radius, node.color, isActive || isAnchor, isAnchor)
+        label.alpha = isActive ? 1 : isNeighbor ? 0.82 : isProminent ? (variant === "global" ? 0.26 : 0.42) : 0.04
       })
 
       for (const { edge, gfx } of edgeRenderRef.current) {
-        const active =
-          activeNodeId &&
-          (edge.source.id === activeNodeId ||
-            edge.target.id === activeNodeId ||
-            neighbors.has(edge.source.id) ||
-            neighbors.has(edge.target.id))
-        gfx.alpha = active ? 0.9 : 0.22
+        const touchesActive = Boolean(
+          activeNodeId && (edge.source.id === activeNodeId || edge.target.id === activeNodeId),
+        )
+        const touchesFocus = edge.source.id === focusNodeId || edge.target.id === focusNodeId
+        const adjacentBand = Boolean(
+          activeNodeId && neighbors.has(edge.source.id) && neighbors.has(edge.target.id),
+        )
+        gfx.alpha = touchesActive ? 0.94 : touchesFocus ? 0.42 : adjacentBand ? 0.28 : 0.12
       }
 
       renderScene()
@@ -705,7 +735,7 @@ export function QuartzGraphView({
 
     for (const node of renderGraph.nodes) {
       const gfx = new Graphics()
-      drawNode(gfx, node.radius, node.color, node.id === selectedNodeIdRef.current)
+      drawNode(gfx, node.radius, node.color, node.id === selectedNodeIdRef.current, node.id === focusNodeId)
       gfx.eventMode = "static"
       gfx.cursor = "pointer"
 
