@@ -832,7 +832,9 @@ export function QuartzGraphView({
     }
 
     const applyHighlight = () => {
-      const activeNodeId = hoveredNodeIdRef.current ?? selectedNodeIdRef.current ?? focusNodeId
+      const hoveredNodeId = hoveredNodeIdRef.current
+      const activeNodeId = hoveredNodeId ?? selectedNodeIdRef.current ?? focusNodeId
+      const hoverSpotlight = Boolean(hoveredNodeId)
       const neighbors = activeNodeId ? adjacencyRef.current.get(activeNodeId) ?? new Set<string>() : new Set<string>()
 
       nodeRenderRef.current.forEach(({ node, gfx, label }) => {
@@ -841,10 +843,12 @@ export function QuartzGraphView({
         const isAnchor = node.id === focusNodeId
         const isProminent = isAnchor || node.group === "root" || node.weight >= (variant === "global" ? 9 : 6)
         const dimmed = Boolean(activeNodeId) && !isActive && !isNeighbor
-        gfx.alpha = dimmed ? 0.22 : isNeighbor ? 0.94 : 1
+        gfx.alpha = hoverSpotlight ? (dimmed ? 0.1 : isNeighbor ? 0.9 : 1) : dimmed ? 0.22 : isNeighbor ? 0.94 : 1
         gfx.scale.set(isActive ? 1.12 : isNeighbor ? 1.05 : isAnchor ? 1.03 : 1)
         drawNode(gfx, node.radius, node.color, isActive || isAnchor, isAnchor)
-        label.alpha = labelAlphaForNode({ isActive, isNeighbor, isAnchor, isProminent })
+        label.alpha = hoverSpotlight && !isActive && !isNeighbor
+          ? 0
+          : labelAlphaForNode({ isActive, isNeighbor, isAnchor, isProminent })
       })
 
       for (const { edge, gfx } of edgeRenderRef.current) {
@@ -855,7 +859,19 @@ export function QuartzGraphView({
         const adjacentBand = Boolean(
           activeNodeId && neighbors.has(edge.source.id) && neighbors.has(edge.target.id),
         )
-        gfx.alpha = touchesActive ? 0.94 : touchesFocus ? 0.42 : adjacentBand ? 0.28 : 0.12
+        gfx.alpha = hoverSpotlight
+          ? touchesActive
+            ? 0.96
+            : adjacentBand
+              ? 0.16
+              : 0.03
+          : touchesActive
+            ? 0.94
+            : touchesFocus
+              ? 0.42
+              : adjacentBand
+                ? 0.28
+                : 0.12
       }
 
       renderScene()
