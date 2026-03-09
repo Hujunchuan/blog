@@ -27,6 +27,21 @@ type CreateWorkspaceCaptureInput = {
   >
 }
 
+type ReplaceWorkspaceCaptureInput = {
+  view?: Partial<CreateWorkspaceViewInput>
+  nodes: Array<
+    Omit<CreateWorkspaceNodeInput, "workspaceViewId"> & {
+      graphId: string
+    }
+  >
+  edges: Array<
+    Omit<CreateWorkspaceEdgeInput, "workspaceViewId" | "fromNodeId" | "toNodeId"> & {
+      fromGraphId: string
+      toGraphId: string
+    }
+  >
+}
+
 type WorkspaceViewRow = {
   id: string
   name: string
@@ -173,81 +188,82 @@ export async function listWorkspaceViews(input?: { sourceId?: string }) {
 
 export async function getWorkspaceView(workspaceViewId: string): Promise<WorkspaceView | null> {
   return withPgClient(async (client) => {
-    const [viewResult, nodesResult, edgesResult, annotationsResult] = await Promise.all([
-      client.query<WorkspaceViewRow>(
-        `
-          SELECT id, name, description, source_scope, layout_mode, owner, metadata, created_at::text, updated_at::text
-          FROM workspace_views
-          WHERE id = $1
-          LIMIT 1
-        `,
-        [workspaceViewId],
-      ),
-      client.query<WorkspaceNodeRow>(
-        `
-          SELECT
-            id,
-            workspace_view_id,
-            node_type,
-            entity_key,
-            document_slug,
-            reference_url,
-            label,
-            x,
-            y,
-            pinned,
-            collapsed,
-            metadata,
-            created_at::text,
-            updated_at::text
-          FROM workspace_nodes
-          WHERE workspace_view_id = $1
-          ORDER BY id ASC
-        `,
-        [workspaceViewId],
-      ),
-      client.query<WorkspaceEdgeRow>(
-        `
-          SELECT
-            id,
-            workspace_view_id,
-            from_node_id,
-            to_node_id,
-            edge_type,
-            weight,
-            source_relation_key,
-            metadata,
-            created_at::text,
-            updated_at::text
-          FROM workspace_edges
-          WHERE workspace_view_id = $1
-          ORDER BY id ASC
-        `,
-        [workspaceViewId],
-      ),
-      client.query<WorkspaceAnnotationRow>(
-        `
-          SELECT
-            id,
-            workspace_view_id,
-            workspace_node_id,
-            body,
-            kind,
-            metadata,
-            created_at::text,
-            updated_at::text
-          FROM workspace_annotations
-          WHERE workspace_view_id = $1
-          ORDER BY created_at ASC, id ASC
-        `,
-        [workspaceViewId],
-      ),
-    ])
+    const viewResult = await client.query<WorkspaceViewRow>(
+      `
+        SELECT id, name, description, source_scope, layout_mode, owner, metadata, created_at::text, updated_at::text
+        FROM workspace_views
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [workspaceViewId],
+    )
 
     const viewRow = viewResult.rows[0]
     if (!viewRow) {
       return null
     }
+
+    const nodesResult = await client.query<WorkspaceNodeRow>(
+      `
+        SELECT
+          id,
+          workspace_view_id,
+          node_type,
+          entity_key,
+          document_slug,
+          reference_url,
+          label,
+          x,
+          y,
+          pinned,
+          collapsed,
+          metadata,
+          created_at::text,
+          updated_at::text
+        FROM workspace_nodes
+        WHERE workspace_view_id = $1
+        ORDER BY id ASC
+      `,
+      [workspaceViewId],
+    )
+
+    const edgesResult = await client.query<WorkspaceEdgeRow>(
+      `
+        SELECT
+          id,
+          workspace_view_id,
+          from_node_id,
+          to_node_id,
+          edge_type,
+          weight,
+          source_relation_key,
+          metadata,
+          created_at::text,
+          updated_at::text
+        FROM workspace_edges
+        WHERE workspace_view_id = $1
+        ORDER BY id ASC
+      `,
+      [workspaceViewId],
+    )
+
+    const annotationsResult = await client.query<WorkspaceAnnotationRow>(
+      `
+        SELECT
+          id,
+          workspace_view_id,
+          workspace_node_id,
+          body,
+          kind,
+          metadata,
+          created_at::text,
+          updated_at::text
+        FROM workspace_annotations
+        WHERE workspace_view_id = $1
+        ORDER BY created_at ASC, id ASC
+      `,
+      [workspaceViewId],
+    )
 
     return {
       ...mapWorkspaceViewRow(viewRow),
@@ -574,6 +590,179 @@ export async function createWorkspaceCapture(input: CreateWorkspaceCaptureInput)
 
       return {
         ...view,
+        nodes,
+        edges,
+        annotations: [],
+      }
+    } catch (error) {
+      await client.query("ROLLBACK")
+      throw error
+    }
+  })
+}
+
+export async function replaceWorkspaceCapture(
+  workspaceViewId: string,
+  input: ReplaceWorkspaceCaptureInput,
+): Promise<WorkspaceView | null> {
+  return withPgClient(async (client) => {
+    await client.query("BEGIN")
+    try {
+      const currentViewResult = await client.query<WorkspaceViewRow>(
+        `
+          SELECT id, name, description, source_scope, layout_mode, owner, metadata, created_at::text, updated_at::text
+          FROM workspace_views
+          WHERE id = $1
+          LIMIT 1
+        `,
+        [workspaceViewId],
+      )
+
+      const currentView = currentViewResult.rows[0]
+      if (!currentView) {
+        await client.query("ROLLBACK")
+        return null
+      }
+
+      const nextSourceScope = input.view?.sourceScope?.sourceIds ?? asStringArray(currentView.source_scope)
+      const nextMetadata = {
+        ...asRecord(currentView.metadata),
+        ...(input.view?.metadata ?? {}),
+      }
+
+      const updatedViewResult = await client.query<WorkspaceViewRow>(
+        `
+          UPDATE workspace_views
+          SET name = $2,
+              description = $3,
+              source_scope = $4::jsonb,
+              layout_mode = $5,
+              owner = $6,
+              metadata = $7::jsonb,
+              updated_at = NOW()
+          WHERE id = $1
+          RETURNING id, name, description, source_scope, layout_mode, owner, metadata, created_at::text, updated_at::text
+        `,
+        [
+          workspaceViewId,
+          input.view?.name ?? currentView.name,
+          input.view?.description ?? currentView.description,
+          JSON.stringify(nextSourceScope),
+          input.view?.layoutMode ?? currentView.layout_mode,
+          input.view?.owner ?? currentView.owner,
+          JSON.stringify(nextMetadata),
+        ],
+      )
+
+      await client.query(`DELETE FROM workspace_nodes WHERE workspace_view_id = $1`, [workspaceViewId])
+
+      const graphToWorkspaceNodeId = new Map<string, string>()
+      const nodes: WorkspaceNode[] = []
+      for (const node of input.nodes) {
+        const nodeResult = await client.query<WorkspaceNodeRow>(
+          `
+            INSERT INTO workspace_nodes (
+              workspace_view_id,
+              node_type,
+              entity_key,
+              document_slug,
+              reference_url,
+              label,
+              x,
+              y,
+              pinned,
+              collapsed,
+              metadata,
+              updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, NOW())
+            RETURNING
+              id,
+              workspace_view_id,
+              node_type,
+              entity_key,
+              document_slug,
+              reference_url,
+              label,
+              x,
+              y,
+              pinned,
+              collapsed,
+              metadata,
+              created_at::text,
+              updated_at::text
+          `,
+          [
+            workspaceViewId,
+            node.nodeType,
+            node.entityKey ?? null,
+            node.documentSlug ?? null,
+            node.referenceUrl ?? null,
+            node.label,
+            node.x ?? 0,
+            node.y ?? 0,
+            node.pinned ?? false,
+            node.collapsed ?? false,
+            JSON.stringify(node.metadata ?? {}),
+          ],
+        )
+
+        const savedNode = mapWorkspaceNodeRow(nodeResult.rows[0])
+        graphToWorkspaceNodeId.set(node.graphId, savedNode.id)
+        nodes.push(savedNode)
+      }
+
+      const edges: WorkspaceEdge[] = []
+      for (const edge of input.edges) {
+        const fromNodeId = graphToWorkspaceNodeId.get(edge.fromGraphId)
+        const toNodeId = graphToWorkspaceNodeId.get(edge.toGraphId)
+        if (!fromNodeId || !toNodeId || fromNodeId === toNodeId) {
+          continue
+        }
+
+        const edgeResult = await client.query<WorkspaceEdgeRow>(
+          `
+            INSERT INTO workspace_edges (
+              workspace_view_id,
+              from_node_id,
+              to_node_id,
+              edge_type,
+              weight,
+              source_relation_key,
+              metadata,
+              updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW())
+            RETURNING
+              id,
+              workspace_view_id,
+              from_node_id,
+              to_node_id,
+              edge_type,
+              weight,
+              source_relation_key,
+              metadata,
+              created_at::text,
+              updated_at::text
+          `,
+          [
+            workspaceViewId,
+            fromNodeId,
+            toNodeId,
+            edge.edgeType ?? "manual",
+            edge.weight ?? 1,
+            edge.sourceRelationKey ?? null,
+            JSON.stringify(edge.metadata ?? {}),
+          ],
+        )
+
+        edges.push(mapWorkspaceEdgeRow(edgeResult.rows[0]))
+      }
+
+      await client.query("COMMIT")
+
+      return {
+        ...mapWorkspaceViewRow(updatedViewResult.rows[0]),
         nodes,
         edges,
         annotations: [],

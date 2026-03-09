@@ -22,6 +22,23 @@ export interface WorkspaceRepository {
   listViews(input?: { sourceId?: string }): Promise<WorkspaceViewSummary[]>
   getView(workspaceViewId: string): Promise<WorkspaceView | undefined>
   createView(input: CreateWorkspaceViewInput): Promise<WorkspaceViewSummary>
+  replaceViewCapture?(
+    workspaceViewId: string,
+    input: {
+      view?: Partial<CreateWorkspaceViewInput>
+      nodes: Array<
+        Omit<CreateWorkspaceNodeInput, "workspaceViewId"> & {
+          graphId: string
+        }
+      >
+      edges: Array<
+        Omit<CreateWorkspaceEdgeInput, "workspaceViewId" | "fromNodeId" | "toNodeId"> & {
+          fromGraphId: string
+          toGraphId: string
+        }
+      >
+    },
+  ): Promise<WorkspaceView | undefined>
   createNode(input: CreateWorkspaceNodeInput): Promise<WorkspaceNode>
   updateNodeLayout(workspaceViewId: string, nodes: UpdateWorkspaceNodeLayoutInput[]): Promise<void>
   createEdge(input: CreateWorkspaceEdgeInput): Promise<WorkspaceEdge>

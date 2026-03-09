@@ -308,10 +308,11 @@ The first workspace-node phase is complete when:
 - saved views now persist node positions from the current rendered graph
 - the focused node is carried into workspace metadata and saved as pinned state
 - saved workspaces can be reopened immediately on the graph page through the existing `workspace` overlay flow
+- an existing workspace can now be refreshed from the current visible subgraph
+- focused graph nodes can now be pinned or released through the same workspace capture update flow
 
 ## Remaining W3 Gaps
 
-- pin or unpin actions are not yet editable from the graph page after save
 - manual notes are not yet writable from the graph page
 - manual relations are not yet writable from the graph page
-- workspace save currently creates a new view instead of updating an existing one
+- workspace editing still works as full capture replacement, not fine-grained node mutation

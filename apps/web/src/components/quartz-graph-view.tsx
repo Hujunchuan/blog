@@ -788,6 +788,146 @@ export function QuartzGraphView({
     }
   }
 
+  const handleRefreshWorkspace = async () => {
+    if (!workspace || !renderGraph || workspaceSaving) {
+      return
+    }
+
+    const nodes = renderGraph.nodes.map((node) => ({
+      graphId: node.id,
+      nodeType: workspaceNodeTypeForGraphNode(node),
+      entityKey: node.entityKey,
+      documentSlug: node.slug,
+      label: node.label,
+      x: Number((node.x ?? 0).toFixed(2)),
+      y: Number((node.y ?? 0).toFixed(2)),
+      pinned: Boolean(node.pinned),
+      collapsed: false,
+      metadata: {
+        group: node.group,
+        weight: node.weight,
+      },
+    }))
+
+    const edges = renderGraph.edges.map((edge) => ({
+      fromGraphId: edge.source.id,
+      toGraphId: edge.target.id,
+      edgeType: "manual" as const,
+      weight: edgeWeight(edge),
+      metadata: {
+        relationTypes: edge.relationTypes ?? [],
+        evidenceDocumentSlugs: edge.evidenceDocumentSlugs ?? [],
+      },
+    }))
+
+    setWorkspaceSaving(true)
+    setWorkspaceMessage("正在更新当前工作台...")
+    try {
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(workspace.id)}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          name: workspace.name,
+          sourceId,
+          layoutMode: variant === "global" ? "global" : "local",
+          mode,
+          focusNodeId,
+          depth,
+          nodes,
+          edges,
+        }),
+      })
+
+      const payload = (await response.json().catch(() => ({}))) as WorkspaceCreateResponse
+      if (!response.ok || !payload.item?.id) {
+        throw new Error(payload.message || "更新当前工作台失败")
+      }
+
+      setWorkspaceMessage("当前工作台已更新")
+      router.push(
+        `/source/${encodeURIComponent(sourceId)}/graph?mode=${encodeURIComponent(mode)}${focusNodeId ? `&focus=${encodeURIComponent(focusNodeId)}` : ""}&workspace=${encodeURIComponent(payload.item.id)}`,
+      )
+      router.refresh()
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "更新当前工作台失败")
+    } finally {
+      setWorkspaceSaving(false)
+    }
+  }
+
+  const handleToggleSelectedPin = async () => {
+    if (!workspace || !renderGraph || !selectedNode || workspaceSaving) {
+      return
+    }
+
+    const nodes = renderGraph.nodes.map((node) => ({
+      graphId: node.id,
+      nodeType: workspaceNodeTypeForGraphNode(node),
+      entityKey: node.entityKey,
+      documentSlug: node.slug,
+      label: node.label,
+      x: Number((node.x ?? 0).toFixed(2)),
+      y: Number((node.y ?? 0).toFixed(2)),
+      pinned: node.id === selectedNode.id ? !selectedNode.pinned : Boolean(node.pinned),
+      collapsed: false,
+      metadata: {
+        group: node.group,
+        weight: node.weight,
+      },
+    }))
+
+    const edges = renderGraph.edges.map((edge) => ({
+      fromGraphId: edge.source.id,
+      toGraphId: edge.target.id,
+      edgeType: "manual" as const,
+      weight: edgeWeight(edge),
+      metadata: {
+        relationTypes: edge.relationTypes ?? [],
+        evidenceDocumentSlugs: edge.evidenceDocumentSlugs ?? [],
+      },
+    }))
+
+    setWorkspaceSaving(true)
+    setWorkspaceMessage(selectedNode.pinned ? "正在释放节点..." : "正在固定节点...")
+    try {
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(workspace.id)}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          name: workspace.name,
+          sourceId,
+          layoutMode: variant === "global" ? "global" : "local",
+          mode,
+          focusNodeId,
+          depth,
+          nodes,
+          edges,
+        }),
+      })
+
+      const payload = (await response.json().catch(() => ({}))) as WorkspaceCreateResponse
+      if (!response.ok || !payload.item?.id) {
+        throw new Error(payload.message || (selectedNode.pinned ? "释放节点失败" : "固定节点失败"))
+      }
+
+      setWorkspaceMessage(selectedNode.pinned ? "节点已释放" : "节点已固定")
+      router.push(
+        `/source/${encodeURIComponent(sourceId)}/graph?mode=${encodeURIComponent(mode)}${focusNodeId ? `&focus=${encodeURIComponent(focusNodeId)}` : ""}&workspace=${encodeURIComponent(payload.item.id)}`,
+      )
+      router.refresh()
+    } catch (error) {
+      setWorkspaceMessage(
+        error instanceof Error ? error.message : selectedNode.pinned ? "释放节点失败" : "固定节点失败",
+      )
+    } finally {
+      setWorkspaceSaving(false)
+    }
+  }
+
   useEffect(() => {
     if (!containerRef.current || appRef.current) {
       return
@@ -1373,6 +1513,21 @@ export function QuartzGraphView({
       </div>
 
       {variant === "local" && workspaceMessage ? <p className="graph-workspace-message">{workspaceMessage}</p> : null}
+      {variant === "local" && workspace ? (
+        <div className="graph-workspace-actions">
+          <button
+            type="button"
+            className="graph-pill"
+            data-active="false"
+            disabled={workspaceSaving}
+            onClick={() => {
+              void handleRefreshWorkspace()
+            }}
+          >
+            更新当前视图
+          </button>
+        </div>
+      ) : null}
 
       <div ref={containerRef} className={`lite-graph-shell ${variant === "global" ? "lite-graph-shell-global" : ""}`} />
 
@@ -1399,6 +1554,18 @@ export function QuartzGraphView({
                 <Link href={analysisHref(sourceId, mode, selectedNode)!} className="ghost-link" prefetch={false}>
                   打开节点
                 </Link>
+              )}
+              {workspace && variant === "local" && (
+                <button
+                  type="button"
+                  className="graph-inline-button"
+                  disabled={workspaceSaving}
+                  onClick={() => {
+                    void handleToggleSelectedPin()
+                  }}
+                >
+                  {selectedNode.pinned ? "释放固定" : "固定节点"}
+                </button>
               )}
             </div>
             <div className="action-row">

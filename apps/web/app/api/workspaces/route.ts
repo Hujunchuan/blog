@@ -3,6 +3,8 @@ import { WorkspaceEdgeType, WorkspaceNodeType } from "@repo/core/types"
 import { NextResponse } from "next/server"
 import { listWorkspaceViews } from "@/lib/knowledge-service"
 
+export const dynamic = "force-dynamic"
+
 type CreateWorkspaceCapturePayload = {
   name?: string
   description?: string
