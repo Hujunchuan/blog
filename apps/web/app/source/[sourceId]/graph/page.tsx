@@ -48,7 +48,7 @@ export default async function GraphPage({
   return (
     <div className="page-stack">
       <section className="quartz-page-header">
-        <p className="eyebrow">graph view</p>
+        <p className="eyebrow">图谱视图</p>
         <h1>{mode === "knowledge" ? "知识节点图谱" : "文档链接图谱"}</h1>
         <p className="lead">
           {mode === "knowledge"
@@ -84,13 +84,13 @@ export default async function GraphPage({
             <div className="panel-header">
               <div>
                 <h2>图谱概况</h2>
-                <p>当前页面使用与原静态站一致的“边栏 + 主内容”结构，便于后续继续扩展工具栏。</p>
+                <p>当前页面采用左侧信息栏、中间图谱、右侧节点详情的三栏结构，便于持续浏览和定位。</p>
               </div>
             </div>
             <div className="result-list">
               <div className="result-card">
                 <h3>当前模式</h3>
-                <p>{mode === "knowledge" ? "knowledge graph" : "document graph"}</p>
+                <p>{mode === "knowledge" ? "知识图谱" : "文档图谱"}</p>
                 <div className="badge-row">
                   <span className="badge">{`节点 ${graph.nodes.length}`}</span>
                   <span className="badge">{`边 ${graph.edges.length}`}</span>

@@ -15,10 +15,10 @@ export default async function HomePage() {
     <div className="page-stack">
       <section className="hero">
         <div>
-          <p className="eyebrow">Phase 1 Dynamic Platform</p>
-          <h1>动态知识平台的第一版已经落地</h1>
+          <p className="eyebrow">止观AI</p>
+          <h1>止观AI 知识平台</h1>
           <p className="lead">
-            当前版本先以本地目录为知识源，由 Next.js 服务端动态读取内容。概览、搜索和单篇文档已经支持优先从
+            当前版本先以本地目录作为知识源，由 Next.js 服务端动态读取内容。概览、搜索和单篇文档已经支持优先从
             PostgreSQL 读取，Explorer 和图谱也已经接入数据库优先读取，并保留快照回退链路。
           </p>
         </div>

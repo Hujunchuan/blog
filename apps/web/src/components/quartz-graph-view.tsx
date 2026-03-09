@@ -80,17 +80,30 @@ type EdgeRenderDatum = {
   gfx: Graphics
 }
 
+const _legacyGroupLabels: Record<string, string> = {
+  root: "根节点",
+  document: "文档",
+  tag: "标签",
+  concept: "概念",
+  person: "人物",
+  project: "项目",
+  meeting: "会议",
+  decision: "决策",
+  task: "任务",
+  practice: "实践",
+}
+
 const groupLabels: Record<string, string> = {
-  root: "Root",
-  document: "Document",
-  tag: "Tag",
-  concept: "Concept",
-  person: "Person",
-  project: "Project",
-  meeting: "Meeting",
-  decision: "Decision",
-  task: "Task",
-  practice: "Practice",
+  root: "根节点",
+  document: "文档",
+  tag: "标签",
+  concept: "概念",
+  person: "人物",
+  project: "项目",
+  meeting: "会议",
+  decision: "决策",
+  task: "任务",
+  practice: "实践",
 }
 
 function hashValue(value: string) {
@@ -361,6 +374,7 @@ export function QuartzGraphView({
   const applyHighlightRef = useRef<() => void>(() => {})
   const [depth, setDepth] = useState<Depth>(variant === "global" ? 2 : 1)
   const [searchValue, setSearchValue] = useState("")
+  const [rendererReadyTick, setRendererReadyTick] = useState(0)
   const graphPickerId = useId()
   const defaultFocusNodeId = useMemo(() => {
     if (initialFocus && graph.nodes.some((node) => node.id === initialFocus)) {
@@ -513,8 +527,13 @@ export function QuartzGraphView({
         return
       }
 
+      container.style.width = "100%"
+      container.style.minHeight = "0"
+      container.style.height = "auto"
+      container.style.aspectRatio = `${canvasWidth} / ${canvasHeight}`
       app.canvas.style.width = "100%"
       app.canvas.style.height = "100%"
+      app.canvas.style.display = "block"
       container.appendChild(app.canvas)
 
       const world = new Container()
@@ -537,6 +556,7 @@ export function QuartzGraphView({
       linksLayerRef.current = linksLayer
       nodesLayerRef.current = nodesLayer
       labelsLayerRef.current = labelsLayer
+      setRendererReadyTick((current) => current + 1)
 
       const handleWheel = (event: WheelEvent) => {
         event.preventDefault()
@@ -836,28 +856,28 @@ export function QuartzGraphView({
       simulation.on("end", null)
       simulation.stop()
     }
-  }, [canvasHeight, canvasWidth, focusNodeId, renderGraph])
+  }, [canvasHeight, canvasWidth, focusNodeId, renderGraph, rendererReadyTick])
 
   if (!renderGraph || !focusNodeId) {
-    return <div className="empty-state">No graph data available.</div>
+    return <div className="empty-state">没有可显示的图谱数据。</div>
   }
 
   return (
     <div className={`lite-graph ${variant === "global" ? "lite-graph-global" : ""}`}>
       <div className="lite-graph-toolbar">
         <div className="badge-row">
-          <span className="badge">{`${renderGraph.nodes.length} nodes`}</span>
-          <span className="badge">{`${renderGraph.edges.length} edges`}</span>
-          <span className="badge">{depth === 1 ? "Local" : "Expanded"}</span>
-          <span className="badge">{variant === "global" ? "Global view" : "Local view"}</span>
+          <span className="badge">{`节点 ${renderGraph.nodes.length}`}</span>
+          <span className="badge">{`边 ${renderGraph.edges.length}`}</span>
+          <span className="badge">{depth === 1 ? "1 跳" : "2 跳"}</span>
+          <span className="badge">{variant === "global" ? "全局视图" : "局部视图"}</span>
         </div>
         <div className="lite-graph-controls">
           <div className="graph-pill-row">
             <button type="button" className="graph-pill" data-active={depth === 1} onClick={() => setDepth(1)}>
-              1 hop
+              1 跳
             </button>
             <button type="button" className="graph-pill" data-active={depth === 2} onClick={() => setDepth(2)}>
-              2 hops
+              2 跳
             </button>
             <button
               type="button"
@@ -872,7 +892,7 @@ export function QuartzGraphView({
                 scheduleRender()
               }}
             >
-              Reset view
+              重置视图
             </button>
             {rootNode && focusNodeId !== rootNode.id && (
               <button
@@ -884,22 +904,22 @@ export function QuartzGraphView({
                   setSearchValue(rootNode.label)
                 }}
               >
-                Back to root
+                返回根节点
               </button>
             )}
             {selectedNode && analysisHref(sourceId, mode, selectedNode) && (
               <Link href={analysisHref(sourceId, mode, selectedNode)!} className="graph-inline-link" prefetch={false}>
-                Open current node
+                打开当前节点
               </Link>
             )}
             {variant === "local" && onOpenGlobal && (
               <button type="button" className="graph-pill" data-active="false" onClick={onOpenGlobal}>
-                Open global graph
+                打开全局图
               </button>
             )}
             {variant === "global" && onCloseGlobal && (
               <button type="button" className="graph-pill" data-active="false" onClick={onCloseGlobal}>
-                Close
+                关闭
               </button>
             )}
           </div>
@@ -911,7 +931,7 @@ export function QuartzGraphView({
               list={graphPickerId}
               value={searchValue}
               onChange={(event) => setSearchValue(event.target.value)}
-              placeholder={variant === "global" ? "Focus a node by label" : "Jump to another node"}
+              placeholder={variant === "global" ? "按名称定位节点" : "切换到其他节点"}
             />
             <datalist id={graphPickerId}>
               {graphOptions.map((node) => (
@@ -919,7 +939,7 @@ export function QuartzGraphView({
               ))}
             </datalist>
             <button type="submit" className="graph-pill" data-active="false">
-              Focus
+              定位
             </button>
           </form>
         </div>
@@ -933,8 +953,8 @@ export function QuartzGraphView({
             <h3>{selectedNode.label}</h3>
             <p>{groupLabels[selectedNode.group] ?? selectedNode.group}</p>
             <div className="badge-row">
-              <span className="badge">{`degree ${renderGraph.degreeMap.get(selectedNode.id) ?? 0}`}</span>
-              <span className="badge">{`weight ${selectedNode.weight}`}</span>
+              <span className="badge">{`连接度 ${renderGraph.degreeMap.get(selectedNode.id) ?? 0}`}</span>
+              <span className="badge">{`权重 ${selectedNode.weight}`}</span>
             </div>
             <div className="action-row">
               <button
@@ -944,18 +964,18 @@ export function QuartzGraphView({
                   focusNode(selectedNode.id)
                 }}
               >
-                Center here
+                设为中心
               </button>
               {analysisHref(sourceId, mode, selectedNode) && (
                 <Link href={analysisHref(sourceId, mode, selectedNode)!} className="ghost-link" prefetch={false}>
-                  Open node
+                  打开节点
                 </Link>
               )}
             </div>
           </div>
 
           <div className="result-card">
-            <h3>Nearby</h3>
+            <h3>邻近节点</h3>
             <div className="result-list">
               {selectedConnections.map(({ edge, peer }) => (
                 <button
@@ -969,10 +989,10 @@ export function QuartzGraphView({
                   }}
                 >
                   <strong>{peer.label}</strong>
-                  <small>{`${groupLabels[peer.group] ?? peer.group} · weight ${edgeWeight(edge)}`}</small>
+                  <small>{`${groupLabels[peer.group] ?? peer.group} · 权重 ${edgeWeight(edge)}`}</small>
                 </button>
               ))}
-              {selectedConnections.length === 0 && <div className="empty-state">No visible neighbors.</div>}
+              {selectedConnections.length === 0 && <div className="empty-state">当前视图中没有可见邻居。</div>}
             </div>
           </div>
         </div>

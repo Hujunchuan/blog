@@ -3,8 +3,8 @@ import Link from "next/link"
 import { ReactNode } from "react"
 
 export const metadata = {
-  title: "知识平台原型",
-  description: "面向多知识源聚合、动态图谱和持续演进的知识平台原型。",
+  title: "止观AI",
+  description: "面向多知识源整合、动态图谱和持续演进的止观AI知识平台。",
 }
 
 export default function RootLayout({ children }: { children: ReactNode }) {
@@ -16,7 +16,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <div className="site-header-row">
               <div>
                 <Link href="/" className="brand">
-                  胡峻川知识平台
+                  止观AI
                 </Link>
                 <p className="brand-subtitle">多知识源、动态图谱、面向后续统一索引的知识平台原型</p>
               </div>

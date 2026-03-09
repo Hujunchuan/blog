@@ -322,7 +322,7 @@ a:hover {
 
 .analysis-form {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.1fr) 110px 110px auto;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   align-items: end;
 }
@@ -332,6 +332,7 @@ a:hover {
   gap: 6px;
   color: var(--muted);
   font-size: 0.88rem;
+  min-width: 0;
 }
 
 .search-form input {
@@ -348,11 +349,21 @@ a:hover {
   font: inherit;
 }
 
+.analysis-form input {
+  width: 100%;
+  min-width: 0;
+}
+
 .search-form button,
 .analysis-form button {
   background: var(--accent);
   color: white;
   cursor: pointer;
+}
+
+.analysis-form > button {
+  width: 100%;
+  min-height: 48px;
 }
 
 .result-list {
@@ -732,7 +743,9 @@ a:hover {
 
 .lite-graph {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
   gap: 16px;
+  align-items: start;
 }
 
 .lite-graph-toolbar {
@@ -741,6 +754,7 @@ a:hover {
   gap: 12px;
   align-items: center;
   flex-wrap: wrap;
+  grid-column: 1 / -1;
 }
 
 .lite-graph-controls {
@@ -750,20 +764,29 @@ a:hover {
 }
 
 .lite-graph-shell {
+  position: relative;
+  min-width: 0;
+  width: 100%;
   border-radius: 18px;
   border: 1px solid rgba(32, 42, 52, 0.08);
   background: rgba(255, 255, 255, 0.92);
   overflow: hidden;
   cursor: grab;
+  aspect-ratio: 12 / 7;
+}
+
+.lite-graph-global {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
 }
 
 .lite-graph-shell-global {
-  min-height: 820px;
+  aspect-ratio: 70 / 41;
+  max-height: calc(100vh - 220px);
 }
 
 .lite-graph-canvas {
   width: 100%;
-  min-height: 560px;
+  height: 100%;
   display: block;
 }
 
@@ -812,12 +835,15 @@ a:hover {
 
 .lite-graph-meta {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 16px;
+  align-self: start;
+  position: sticky;
+  top: 18px;
 }
 
 .lite-graph-global .lite-graph-meta {
-  grid-template-columns: 1.1fr 1.4fr;
+  grid-template-columns: 1fr;
 }
 
 .graph-focus-form {
@@ -859,6 +885,16 @@ a:hover {
   text-decoration: none;
   border-color: rgba(23, 76, 91, 0.22);
   background: rgba(255, 255, 255, 0.84);
+}
+
+@media (max-width: 1360px) {
+  .analysis-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .analysis-form > button {
+    grid-column: 1 / -1;
+  }
 }
 
 .graph-overlay {
@@ -1219,7 +1255,8 @@ a:hover {
 
   .analysis-form,
   .analysis-grid,
-  .graph-workspace {
+  .graph-workspace,
+  .lite-graph {
     grid-template-columns: 1fr;
   }
 
@@ -1268,5 +1305,6 @@ a:hover {
   .lite-graph-global .lite-graph-meta,
   .lite-graph-meta {
     grid-template-columns: 1fr;
+    position: static;
   }
 }

@@ -8,7 +8,7 @@ const QuartzGraphView = dynamic(
   () => import("@/components/quartz-graph-view").then((module) => module.QuartzGraphView),
   {
     ssr: false,
-    loading: () => <div className="empty-state">Loading graph...</div>,
+    loading: () => <div className="empty-state">图谱加载中...</div>,
   },
 )
 
@@ -67,11 +67,11 @@ export function GraphViewShell({
       />
 
       {globalOpen && (
-        <div className="graph-overlay" role="dialog" aria-modal="true" aria-label="Global graph">
+        <div className="graph-overlay" role="dialog" aria-modal="true" aria-label="全局图谱">
           <button
             type="button"
             className="graph-overlay-backdrop"
-            aria-label="Close global graph"
+            aria-label="关闭全局图谱"
             onClick={() => setGlobalOpen(false)}
           />
           <div className="graph-overlay-panel">
