@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react"
 import {
   Application,
   Color,
@@ -339,6 +339,8 @@ export function QuartzGraphView({
   } | null>(null)
   const applyHighlightRef = useRef<() => void>(() => {})
   const [depth, setDepth] = useState<Depth>(variant === "global" ? 2 : 1)
+  const [searchValue, setSearchValue] = useState("")
+  const graphPickerId = useId()
   const defaultFocusNodeId = useMemo(() => {
     if (initialFocus && graph.nodes.some((node) => node.id === initialFocus)) {
       return initialFocus
@@ -349,6 +351,17 @@ export function QuartzGraphView({
   }, [graph.nodes, initialFocus])
   const [focusNodeId, setFocusNodeId] = useState<string | undefined>(defaultFocusNodeId)
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(defaultFocusNodeId)
+  const rootNode = useMemo(
+    () => graph.nodes.find((node) => node.id === defaultFocusNodeId),
+    [defaultFocusNodeId, graph.nodes],
+  )
+  const graphOptions = useMemo(
+    () =>
+      [...graph.nodes]
+        .sort((left, right) => right.weight - left.weight || left.label.localeCompare(right.label, "zh-CN"))
+        .slice(0, 240),
+    [graph.nodes],
+  )
 
   const scheduleRender = () => {
     if (renderFrameRef.current !== null) {
@@ -418,6 +431,42 @@ export function QuartzGraphView({
       .sort((left, right) => edgeWeight(right.edge) - edgeWeight(left.edge))
       .slice(0, 8)
   }, [renderGraph, selectedNode])
+
+  const focusNode = (nodeId: string | undefined) => {
+    if (!nodeId) {
+      return
+    }
+
+    setFocusNodeId(nodeId)
+    setSelectedNodeId(nodeId)
+  }
+
+  const resolveNodeFromQuery = (query: string) => {
+    const normalized = query.trim()
+    if (!normalized) {
+      return undefined
+    }
+
+    return graph.nodes.find((node) => {
+      return (
+        node.id === normalized ||
+        node.label === normalized ||
+        node.slug === normalized ||
+        node.entityKey === normalized
+      )
+    })
+  }
+
+  const handleFocusSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const match = resolveNodeFromQuery(searchValue)
+    if (!match) {
+      return
+    }
+
+    focusNode(match.id)
+    setSearchValue(match.label)
+  }
 
   useEffect(() => {
     if (!containerRef.current || appRef.current) {
@@ -772,38 +821,77 @@ export function QuartzGraphView({
           <span className="badge">{depth === 1 ? "Local" : "Expanded"}</span>
           <span className="badge">{variant === "global" ? "Global view" : "Local view"}</span>
         </div>
-        <div className="graph-pill-row">
-          <button type="button" className="graph-pill" data-active={depth === 1} onClick={() => setDepth(1)}>
-            1 hop
-          </button>
-          <button type="button" className="graph-pill" data-active={depth === 2} onClick={() => setDepth(2)}>
-            2 hops
-          </button>
-          <button
-            type="button"
-            className="graph-pill"
-            data-active="false"
-            onClick={() => {
-              viewRef.current = { x: canvasWidth / 2, y: canvasHeight / 2, scale: 1 }
-              if (worldRef.current) {
-                worldRef.current.position.set(viewRef.current.x, viewRef.current.y)
-                worldRef.current.scale.set(1)
-              }
-              scheduleRender()
-            }}
-          >
-            Reset view
-          </button>
-          {variant === "local" && onOpenGlobal && (
-            <button type="button" className="graph-pill" data-active="false" onClick={onOpenGlobal}>
-              Open global graph
+        <div className="lite-graph-controls">
+          <div className="graph-pill-row">
+            <button type="button" className="graph-pill" data-active={depth === 1} onClick={() => setDepth(1)}>
+              1 hop
             </button>
-          )}
-          {variant === "global" && onCloseGlobal && (
-            <button type="button" className="graph-pill" data-active="false" onClick={onCloseGlobal}>
-              Close
+            <button type="button" className="graph-pill" data-active={depth === 2} onClick={() => setDepth(2)}>
+              2 hops
             </button>
-          )}
+            <button
+              type="button"
+              className="graph-pill"
+              data-active="false"
+              onClick={() => {
+                viewRef.current = { x: canvasWidth / 2, y: canvasHeight / 2, scale: 1 }
+                if (worldRef.current) {
+                  worldRef.current.position.set(viewRef.current.x, viewRef.current.y)
+                  worldRef.current.scale.set(1)
+                }
+                scheduleRender()
+              }}
+            >
+              Reset view
+            </button>
+            {rootNode && focusNodeId !== rootNode.id && (
+              <button
+                type="button"
+                className="graph-pill"
+                data-active="false"
+                onClick={() => {
+                  focusNode(rootNode.id)
+                  setSearchValue(rootNode.label)
+                }}
+              >
+                Back to root
+              </button>
+            )}
+            {selectedNode && analysisHref(sourceId, mode, selectedNode) && (
+              <Link href={analysisHref(sourceId, mode, selectedNode)!} className="graph-inline-link" prefetch={false}>
+                Open current node
+              </Link>
+            )}
+            {variant === "local" && onOpenGlobal && (
+              <button type="button" className="graph-pill" data-active="false" onClick={onOpenGlobal}>
+                Open global graph
+              </button>
+            )}
+            {variant === "global" && onCloseGlobal && (
+              <button type="button" className="graph-pill" data-active="false" onClick={onCloseGlobal}>
+                Close
+              </button>
+            )}
+          </div>
+
+          <form className="graph-focus-form" onSubmit={handleFocusSubmit}>
+            <input
+              type="text"
+              className="graph-focus-input"
+              list={graphPickerId}
+              value={searchValue}
+              onChange={(event) => setSearchValue(event.target.value)}
+              placeholder={variant === "global" ? "Focus a node by label" : "Jump to another node"}
+            />
+            <datalist id={graphPickerId}>
+              {graphOptions.map((node) => (
+                <option key={node.id} value={node.label} />
+              ))}
+            </datalist>
+            <button type="submit" className="graph-pill" data-active="false">
+              Focus
+            </button>
+          </form>
         </div>
       </div>
 
@@ -823,8 +911,7 @@ export function QuartzGraphView({
                 type="button"
                 className="graph-inline-button"
                 onClick={() => {
-                  setFocusNodeId(selectedNode.id)
-                  setSelectedNodeId(selectedNode.id)
+                  focusNode(selectedNode.id)
                 }}
               >
                 Center here

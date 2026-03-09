@@ -743,6 +743,12 @@ a:hover {
   flex-wrap: wrap;
 }
 
+.lite-graph-controls {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+}
+
 .lite-graph-shell {
   border-radius: 18px;
   border: 1px solid rgba(32, 42, 52, 0.08);
@@ -812,6 +818,47 @@ a:hover {
 
 .lite-graph-global .lite-graph-meta {
   grid-template-columns: 1.1fr 1.4fr;
+}
+
+.graph-focus-form {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.graph-focus-input {
+  min-width: min(320px, 100%);
+  padding: 10px 13px;
+  border-radius: 999px;
+  border: 1px solid rgba(91, 76, 52, 0.14);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--text);
+  outline: none;
+}
+
+.graph-focus-input:focus {
+  border-color: rgba(23, 76, 91, 0.32);
+  box-shadow: 0 0 0 4px rgba(23, 76, 91, 0.08);
+}
+
+.graph-inline-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(91, 76, 52, 0.14);
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--text);
+  font-size: 0.88rem;
+  text-decoration: none;
+}
+
+.graph-inline-link:hover {
+  text-decoration: none;
+  border-color: rgba(23, 76, 91, 0.22);
+  background: rgba(255, 255, 255, 0.84);
 }
 
 .graph-overlay {
@@ -1202,6 +1249,20 @@ a:hover {
     width: min(100vw - 24px, 100%);
     max-height: calc(100vh - 24px);
     padding: 14px;
+  }
+
+  .lite-graph-controls {
+    justify-items: stretch;
+    width: 100%;
+  }
+
+  .graph-focus-form {
+    justify-content: stretch;
+  }
+
+  .graph-focus-input {
+    min-width: 0;
+    width: 100%;
   }
 
   .lite-graph-global .lite-graph-meta,

@@ -23,6 +23,7 @@
     "watch:sources": "tsx scripts/watch-knowledge-sources.ts",
     "web:dev": "npm --prefix apps/web run dev",
     "web:build": "npm --prefix apps/web run build",
+    "web:start": "npm --prefix apps/web run start",
     "check": "tsc --noEmit && npx prettier . --check",
     "format": "npx prettier . --write",
     "test": "tsx --test",
