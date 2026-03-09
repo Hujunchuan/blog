@@ -7,7 +7,29 @@
     "enabled": true,
     "description": "第一阶段动态平台默认知识源。",
     "settings": {
-      "ignorePatterns": [".git", ".obsidian", "node_modules", "public"]
+      "ignorePatterns": [
+        ".git",
+        ".obsidian",
+        "node_modules",
+        "public"
+      ]
+    }
+  },
+  {
+    "id": "hujunchuanknowledgebase",
+    "name": "HuJunchuanKnowledgeBase",
+    "type": "github",
+    "location": "Hujunchuan/HuJunchuanKnowledgeBase",
+    "enabled": true,
+    "description": "GitHub ???",
+    "settings": {
+      "ignorePatterns": [
+        ".github"
+      ],
+      "github": {
+        "branch": "main",
+        "cacheDir": ".cache/github-sources/hujunchuanknowledgebase"
+      }
     }
   }
 ]

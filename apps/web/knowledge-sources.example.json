@@ -5,7 +5,7 @@
     "type": "local",
     "location": "C:/Users/god89/Documents/止止观行",
     "enabled": true,
-    "description": "本地知识源示例",
+    "description": "本地知识源示例。",
     "settings": {
       "ignorePatterns": [".git", ".obsidian", "node_modules", "public"]
     }
@@ -16,13 +16,13 @@
     "type": "github",
     "location": "owner/repo",
     "enabled": false,
-    "description": "GitHub connector 第一版示例",
+    "description": "GitHub connector 第一版示例。",
     "settings": {
       "ignorePatterns": [".github"],
       "github": {
         "branch": "main",
         "tokenEnv": "GITHUB_TOKEN",
-        "cacheDir": "apps/web/.cache/github-sources/daceng-wisdom-repo"
+        "cacheDir": ".cache/github-sources/daceng-wisdom-repo"
       }
     }
   }

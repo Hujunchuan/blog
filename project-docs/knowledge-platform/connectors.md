@@ -59,7 +59,7 @@ interface KnowledgeConnector {
 ### 实现方式
 
 - 首次读取时在本地创建 mirror
-- 默认缓存到 `apps/web/.cache/github-sources/<sourceId>`
+- 默认缓存到 `.cache/github-sources/<sourceId>`
 - 后续读取会复用 mirror，并在一定 TTL 内避免重复拉取
 - 同样只扫描 `.md` / `.mdx`
 
@@ -78,7 +78,7 @@ interface KnowledgeConnector {
     "github": {
       "branch": "main",
       "tokenEnv": "GITHUB_TOKEN",
-      "cacheDir": "apps/web/.cache/github-sources/daceng-wisdom-repo"
+      "cacheDir": ".cache/github-sources/daceng-wisdom-repo"
     }
   }
 }

@@ -1,4 +1,4 @@
-import { isDatabaseConfigured, checkDatabaseHealth, getPersistedOverview } from "@repo/db/index"
+import { checkDatabaseHealth, getPersistedOverview, isDatabaseConfigured } from "@repo/db/index"
 import { AdminConsole } from "@/components/admin-console"
 import { listSources } from "@/lib/knowledge-service"
 
@@ -54,11 +54,11 @@ export default async function AdminPage() {
         <div>
           <p className="eyebrow">Admin</p>
           <h1>动态知识平台管理台</h1>
-          <p className="lead">这里用于初始化数据库、查看知识源状态，并触发手动同步。</p>
+          <p className="lead">这里用于初始化数据库、查看知识源状态，并添加新的 GitHub 知识源。</p>
         </div>
         <div className="hero-card">
           <span>当前阶段</span>
-          <strong>数据库优先读取 + 本地 watcher 自动同步</strong>
+          <strong>数据库优先读写 + 本地源 + GitHub connector 第一版</strong>
         </div>
       </section>
 

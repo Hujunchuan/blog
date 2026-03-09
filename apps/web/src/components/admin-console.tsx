@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useState, useTransition } from "react"
+import { FormEvent, useState, useTransition } from "react"
 
 type AdminSourceStatus = {
   id: string
@@ -21,7 +21,28 @@ type AdminSourceStatus = {
   linkCount?: number
 }
 
-async function callApi(url: string, init?: RequestInit) {
+type GitHubSourceForm = {
+  name: string
+  location: string
+  branch: string
+  description: string
+  tokenEnv: string
+}
+
+type ApiPayload = {
+  status?: string
+  message?: string
+}
+
+const emptyGitHubForm: GitHubSourceForm = {
+  name: "",
+  location: "",
+  branch: "main",
+  description: "",
+  tokenEnv: "",
+}
+
+async function callApi<T extends ApiPayload>(url: string, init?: RequestInit) {
   const response = await fetch(url, {
     ...init,
     headers: {
@@ -30,12 +51,20 @@ async function callApi(url: string, init?: RequestInit) {
     },
   })
 
-  const payload = (await response.json().catch(() => ({}))) as { message?: string; status?: string }
+  const payload = (await response.json().catch(() => ({}))) as T
   if (!response.ok) {
     throw new Error(payload.message || `Request failed with ${response.status}`)
   }
 
   return payload
+}
+
+function formatTimestamp(value?: string | null) {
+  if (!value) {
+    return "暂无"
+  }
+
+  return new Date(value).toLocaleString("zh-CN")
 }
 
 export function AdminConsole({
@@ -50,17 +79,36 @@ export function AdminConsole({
   const router = useRouter()
   const [message, setMessage] = useState<string>()
   const [pendingAction, startTransition] = useTransition()
+  const [gitHubForm, setGitHubForm] = useState<GitHubSourceForm>(emptyGitHubForm)
 
   const runAction = (label: string, action: () => Promise<void>) => {
     startTransition(async () => {
       try {
         setMessage(`${label}处理中...`)
         await action()
-        setMessage(`${label}完成`)
+        setMessage(`${label}已完成`)
         router.refresh()
       } catch (error) {
         setMessage(error instanceof Error ? error.message : `${label}失败`)
       }
+    })
+  }
+
+  const handleAddGitHubSource = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    runAction("添加 GitHub 知识源", async () => {
+      await callApi("/api/admin/sources", {
+        method: "POST",
+        body: JSON.stringify({
+          type: "github",
+          name: gitHubForm.name.trim(),
+          location: gitHubForm.location.trim(),
+          branch: gitHubForm.branch.trim(),
+          description: gitHubForm.description.trim(),
+          tokenEnv: gitHubForm.tokenEnv.trim(),
+        }),
+      })
+      setGitHubForm(emptyGitHubForm)
     })
   }
 
@@ -69,14 +117,14 @@ export function AdminConsole({
       <div className="panel-header">
         <div>
           <h2>运行管理</h2>
-          <p>当前管理页提供数据库初始化、单知识源同步和同步状态查看。</p>
+          <p>这里用于初始化数据库、管理知识源，并触发手动同步。</p>
         </div>
         <div className="admin-actions">
           <button
             type="button"
             disabled={pendingAction || !configured}
             onClick={() =>
-              runAction("数据库初始化", async () => {
+              runAction("初始化数据库", async () => {
                 await callApi("/api/admin/db/init", { method: "POST" })
               })
             }
@@ -93,11 +141,73 @@ export function AdminConsole({
           <small>健康状态：{dbStatus}</small>
         </article>
         <article className="result-card">
-          <h3>自动同步</h3>
-          <p>单独在终端运行 `npm run watch:sources` 即可监听本地知识源变更。</p>
-          <small>推荐与 `npm run web:dev` 并行运行。</small>
+          <h3>同步方式</h3>
+          <p>本地知识源可通过 `npm run watch:sources` 持续同步到 PostgreSQL。</p>
+          <small>GitHub 知识源当前采用 mirror + 手动同步模式。</small>
         </article>
       </div>
+
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <h2>添加 GitHub 知识源</h2>
+            <p>先支持 public repo；private repo 可选填写 token 环境变量名。</p>
+          </div>
+        </div>
+
+        <form className="analysis-form" onSubmit={handleAddGitHubSource}>
+          <label>
+            名称
+            <input
+              type="text"
+              value={gitHubForm.name}
+              onChange={(event) => setGitHubForm((current) => ({ ...current, name: event.target.value }))}
+              placeholder="例如：胡峻川知识库"
+              required
+            />
+          </label>
+          <label>
+            仓库地址
+            <input
+              type="text"
+              value={gitHubForm.location}
+              onChange={(event) => setGitHubForm((current) => ({ ...current, location: event.target.value }))}
+              placeholder="例如：Hujunchuan/HuJunchuanKnowledgeBase"
+              required
+            />
+          </label>
+          <label>
+            分支
+            <input
+              type="text"
+              value={gitHubForm.branch}
+              onChange={(event) => setGitHubForm((current) => ({ ...current, branch: event.target.value }))}
+              placeholder="main"
+            />
+          </label>
+          <label>
+            描述
+            <input
+              type="text"
+              value={gitHubForm.description}
+              onChange={(event) => setGitHubForm((current) => ({ ...current, description: event.target.value }))}
+              placeholder="GitHub 知识源"
+            />
+          </label>
+          <label>
+            Token 环境变量
+            <input
+              type="text"
+              value={gitHubForm.tokenEnv}
+              onChange={(event) => setGitHubForm((current) => ({ ...current, tokenEnv: event.target.value }))}
+              placeholder="private repo 时可填 GITHUB_TOKEN"
+            />
+          </label>
+          <button type="submit" disabled={pendingAction}>
+            添加 GitHub 知识源
+          </button>
+        </form>
+      </section>
 
       {message ? <p className="admin-message">{message}</p> : null}
 
@@ -110,6 +220,7 @@ export function AdminConsole({
               <p>{source.description ?? source.location}</p>
               <p>{source.location}</p>
             </div>
+
             <dl>
               <div>
                 <dt>持久化</dt>
@@ -124,12 +235,9 @@ export function AdminConsole({
                 <dd>{source.tagCount ?? 0}</dd>
               </div>
             </dl>
-            <p className="admin-meta">
-              最近同步：
-              {source.latestSyncRun?.finished_at
-                ? new Date(source.latestSyncRun.finished_at).toLocaleString("zh-CN")
-                : "暂无"}
-            </p>
+
+            <p className="admin-meta">最近同步：{formatTimestamp(source.latestSyncRun?.finished_at)}</p>
+
             <div className="admin-actions">
               <button
                 type="button"
