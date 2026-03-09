@@ -12,6 +12,21 @@ import {
 } from "../../core/src"
 import { withPgClient } from "./client"
 
+type CreateWorkspaceCaptureInput = {
+  view: CreateWorkspaceViewInput
+  nodes: Array<
+    Omit<CreateWorkspaceNodeInput, "workspaceViewId"> & {
+      graphId: string
+    }
+  >
+  edges: Array<
+    Omit<CreateWorkspaceEdgeInput, "workspaceViewId" | "fromNodeId" | "toNodeId"> & {
+      fromGraphId: string
+      toGraphId: string
+    }
+  >
+}
+
 type WorkspaceViewRow = {
   id: string
   name: string
@@ -144,8 +159,8 @@ export async function listWorkspaceViews(input?: { sourceId?: string }) {
         FROM workspace_views
         WHERE ($1::text IS NULL OR EXISTS (
           SELECT 1
-          FROM jsonb_array_elements_text(source_scope) AS source_id
-          WHERE source_id = $1
+          FROM jsonb_array_elements_text(source_scope) AS source_id(value)
+          WHERE source_id.value = $1
         ))
         ORDER BY updated_at DESC, id DESC
       `,
@@ -427,5 +442,145 @@ export async function createWorkspaceAnnotation(input: CreateWorkspaceAnnotation
     )
 
     return mapWorkspaceAnnotationRow(result.rows[0])
+  })
+}
+
+export async function createWorkspaceCapture(input: CreateWorkspaceCaptureInput): Promise<WorkspaceView> {
+  return withPgClient(async (client) => {
+    await client.query("BEGIN")
+    try {
+      const viewResult = await client.query<WorkspaceViewRow>(
+        `
+          INSERT INTO workspace_views (name, description, source_scope, layout_mode, owner, metadata, updated_at)
+          VALUES ($1, $2, $3::jsonb, $4, $5, $6::jsonb, NOW())
+          RETURNING id, name, description, source_scope, layout_mode, owner, metadata, created_at::text, updated_at::text
+        `,
+        [
+          input.view.name,
+          input.view.description ?? null,
+          JSON.stringify(input.view.sourceScope.sourceIds ?? []),
+          input.view.layoutMode ?? "local",
+          input.view.owner ?? null,
+          JSON.stringify(input.view.metadata ?? {}),
+        ],
+      )
+
+      const view = mapWorkspaceViewRow(viewResult.rows[0])
+      const graphToWorkspaceNodeId = new Map<string, string>()
+      const nodes: WorkspaceNode[] = []
+
+      for (const node of input.nodes) {
+        const nodeResult = await client.query<WorkspaceNodeRow>(
+          `
+            INSERT INTO workspace_nodes (
+              workspace_view_id,
+              node_type,
+              entity_key,
+              document_slug,
+              reference_url,
+              label,
+              x,
+              y,
+              pinned,
+              collapsed,
+              metadata,
+              updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, NOW())
+            RETURNING
+              id,
+              workspace_view_id,
+              node_type,
+              entity_key,
+              document_slug,
+              reference_url,
+              label,
+              x,
+              y,
+              pinned,
+              collapsed,
+              metadata,
+              created_at::text,
+              updated_at::text
+          `,
+          [
+            view.id,
+            node.nodeType,
+            node.entityKey ?? null,
+            node.documentSlug ?? null,
+            node.referenceUrl ?? null,
+            node.label,
+            node.x ?? 0,
+            node.y ?? 0,
+            node.pinned ?? false,
+            node.collapsed ?? false,
+            JSON.stringify(node.metadata ?? {}),
+          ],
+        )
+
+        const savedNode = mapWorkspaceNodeRow(nodeResult.rows[0])
+        graphToWorkspaceNodeId.set(node.graphId, savedNode.id)
+        nodes.push(savedNode)
+      }
+
+      const edges: WorkspaceEdge[] = []
+      for (const edge of input.edges) {
+        const fromNodeId = graphToWorkspaceNodeId.get(edge.fromGraphId)
+        const toNodeId = graphToWorkspaceNodeId.get(edge.toGraphId)
+        if (!fromNodeId || !toNodeId || fromNodeId === toNodeId) {
+          continue
+        }
+
+        const edgeResult = await client.query<WorkspaceEdgeRow>(
+          `
+            INSERT INTO workspace_edges (
+              workspace_view_id,
+              from_node_id,
+              to_node_id,
+              edge_type,
+              weight,
+              source_relation_key,
+              metadata,
+              updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW())
+            RETURNING
+              id,
+              workspace_view_id,
+              from_node_id,
+              to_node_id,
+              edge_type,
+              weight,
+              source_relation_key,
+              metadata,
+              created_at::text,
+              updated_at::text
+          `,
+          [
+            view.id,
+            fromNodeId,
+            toNodeId,
+            edge.edgeType ?? "manual",
+            edge.weight ?? 1,
+            edge.sourceRelationKey ?? null,
+            JSON.stringify(edge.metadata ?? {}),
+          ],
+        )
+
+        edges.push(mapWorkspaceEdgeRow(edgeResult.rows[0]))
+      }
+
+      await client.query("COMMIT")
+
+      return {
+        ...view,
+        nodes,
+        edges,
+        annotations: [],
+      }
+    } catch (error) {
+      await client.query("ROLLBACK")
+      throw error
+    }
   })
 }

@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react"
 import {
   Application,
@@ -50,12 +51,15 @@ type GraphNodeData = KnowledgeGraphNode &
   SimulationNodeDatum & {
     radius: number
     color: string
+    pinned: boolean
   }
 
 type GraphLinkData = SimulationLinkDatum<GraphNodeData> & {
   source: GraphNodeData
   target: GraphNodeData
   weight: number
+  relationTypes?: KnowledgeGraphEdge["relationTypes"]
+  evidenceDocumentSlugs?: KnowledgeGraphEdge["evidenceDocumentSlugs"]
 }
 
 type RenderGraph = {
@@ -78,6 +82,15 @@ type WorkspaceOverlayResult = {
     edges: KnowledgeGraphEdge[]
   }
   nodeOverlay: Map<string, WorkspaceNodeOverlay>
+}
+
+type WorkspaceCreateResponse = {
+  status?: string
+  message?: string
+  item?: {
+    id: string
+    name: string
+  }
 }
 
 type ViewTransform = {
@@ -286,6 +299,34 @@ function analysisSectionHref(
   return base ? `${base}#${section}` : undefined
 }
 
+function workspaceNodeTypeForGraphNode(node: KnowledgeGraphNode) {
+  if (node.group === "reference") {
+    return "reference" as const
+  }
+
+  if (node.group === "workspace") {
+    return "synthetic" as const
+  }
+
+  if (node.slug && (!node.entityKey || node.group === "document" || node.group === "root")) {
+    return "document" as const
+  }
+
+  if (node.entityKey) {
+    return "entity" as const
+  }
+
+  return "synthetic" as const
+}
+
+function buildWorkspaceSeedName(mode: KnowledgeGraphMode, selectedNode?: KnowledgeGraphNode) {
+  if (selectedNode?.label) {
+    return `${selectedNode.label}视图`
+  }
+
+  return mode === "knowledge" ? "知识图谱视图" : "文档图谱视图"
+}
+
 function clampScale(scale: number) {
   return Math.min(2.8, Math.max(0.65, scale))
 }
@@ -397,6 +438,7 @@ function buildRenderGraph(
         radius:
           (node.id === focusNodeId ? 12 : 7.5) + Math.min(node.weight, 10) * (node.id === focusNodeId ? 0.35 : 0.18),
         color: colorForGroup(node.group),
+        pinned: Boolean(overlay?.pinned),
         x,
         y,
         fx: overlay?.pinned && typeof x === "number" ? x : undefined,
@@ -430,6 +472,8 @@ function buildRenderGraph(
         source,
         target,
         weight: edgeWeight(edge),
+        relationTypes: edge.relationTypes,
+        evidenceDocumentSlugs: edge.evidenceDocumentSlugs,
       },
     ]
   })
@@ -491,6 +535,7 @@ export function QuartzGraphView({
   onOpenGlobal?: () => void
   onCloseGlobal?: () => void
 }) {
+  const router = useRouter()
   const canvasWidth = variant === "global" ? GLOBAL_CANVAS_WIDTH : LOCAL_CANVAS_WIDTH
   const canvasHeight = variant === "global" ? GLOBAL_CANVAS_HEIGHT : LOCAL_CANVAS_HEIGHT
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -521,6 +566,9 @@ export function QuartzGraphView({
   const applyHighlightRef = useRef<() => void>(() => {})
   const [depth, setDepth] = useState<Depth>(variant === "global" ? 2 : 1)
   const [searchValue, setSearchValue] = useState("")
+  const [workspaceName, setWorkspaceName] = useState("")
+  const [workspaceMessage, setWorkspaceMessage] = useState<string>()
+  const [workspaceSaving, setWorkspaceSaving] = useState(false)
   const [rendererReadyTick, setRendererReadyTick] = useState(0)
   const workspaceOverlay = useMemo(() => mergeGraphWithWorkspace(graph, workspace), [graph, workspace])
   const effectiveGraph = workspaceOverlay.graph
@@ -623,6 +671,15 @@ export function QuartzGraphView({
       .slice(0, 8)
   }, [renderGraph, selectedNode])
 
+  useEffect(() => {
+    if (workspace) {
+      setWorkspaceName(workspace.name)
+      return
+    }
+
+    setWorkspaceName((current) => current || buildWorkspaceSeedName(mode, selectedNode ?? rootNode))
+  }, [mode, rootNode, selectedNode, workspace])
+
   const focusNode = (nodeId: string | undefined) => {
     if (!nodeId) {
       return
@@ -657,6 +714,78 @@ export function QuartzGraphView({
 
     focusNode(match.id)
     setSearchValue(match.label)
+  }
+
+  const handleSaveWorkspace = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!renderGraph || workspaceSaving) {
+      return
+    }
+
+    const trimmedName = workspaceName.trim() || buildWorkspaceSeedName(mode, selectedNode ?? rootNode)
+    const nodes = renderGraph.nodes.map((node) => ({
+      graphId: node.id,
+      nodeType: workspaceNodeTypeForGraphNode(node),
+      entityKey: node.entityKey,
+      documentSlug: node.slug,
+      label: node.label,
+      x: Number((node.x ?? 0).toFixed(2)),
+      y: Number((node.y ?? 0).toFixed(2)),
+      pinned: node.pinned || node.id === focusNodeId,
+      collapsed: false,
+      metadata: {
+        group: node.group,
+        weight: node.weight,
+      },
+    }))
+
+    const edges = renderGraph.edges.map((edge) => ({
+      fromGraphId: edge.source.id,
+      toGraphId: edge.target.id,
+      edgeType: "manual" as const,
+      weight: edgeWeight(edge),
+      metadata: {
+        relationTypes: edge.relationTypes ?? [],
+        evidenceDocumentSlugs: edge.evidenceDocumentSlugs ?? [],
+      },
+    }))
+
+    setWorkspaceSaving(true)
+    setWorkspaceMessage("正在保存当前视图...")
+    try {
+      const response = await fetch("/api/workspaces", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          name: trimmedName,
+          sourceId,
+          layoutMode: variant === "global" ? "global" : "local",
+          mode,
+          focusNodeId,
+          depth,
+          description: `从${variant === "global" ? "全局" : "局部"}图谱保存的${mode === "knowledge" ? "知识" : "文档"}视图`,
+          nodes,
+          edges,
+        }),
+      })
+
+      const payload = (await response.json().catch(() => ({}))) as WorkspaceCreateResponse
+      if (!response.ok || !payload.item?.id) {
+        throw new Error(payload.message || "保存工作台视图失败")
+      }
+
+      setWorkspaceMessage("当前视图已保存")
+      router.push(
+        `/source/${encodeURIComponent(sourceId)}/graph?mode=${encodeURIComponent(mode)}${focusNodeId ? `&focus=${encodeURIComponent(focusNodeId)}` : ""}&workspace=${encodeURIComponent(payload.item.id)}`,
+      )
+      router.refresh()
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "保存工作台视图失败")
+    } finally {
+      setWorkspaceSaving(false)
+    }
   }
 
   useEffect(() => {
@@ -1224,8 +1353,26 @@ export function QuartzGraphView({
               定位
             </button>
           </form>
+
+          {variant === "local" && (
+            <form className="graph-workspace-form" onSubmit={handleSaveWorkspace}>
+              <input
+                type="text"
+                className="graph-focus-input"
+                value={workspaceName}
+                onChange={(event) => setWorkspaceName(event.target.value)}
+                placeholder="输入工作台名称"
+                maxLength={80}
+              />
+              <button type="submit" className="graph-pill" data-active="false" disabled={workspaceSaving}>
+                {workspaceSaving ? "保存中..." : workspace ? "另存视图" : "保存视图"}
+              </button>
+            </form>
+          )}
         </div>
       </div>
+
+      {variant === "local" && workspaceMessage ? <p className="graph-workspace-message">{workspaceMessage}</p> : null}
 
       <div ref={containerRef} className={`lite-graph-shell ${variant === "global" ? "lite-graph-shell-global" : ""}`} />
 

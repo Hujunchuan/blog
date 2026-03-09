@@ -301,3 +301,17 @@ The first workspace-node phase is complete when:
 - there is not yet a UI to pin or unpin nodes from the graph page
 - there is not yet a UI to create manual notes or manual relations
 - there is not yet a workspace switcher with editing actions
+
+## Current W3 Slice Landed
+
+- the graph page can now save the current visible subgraph as a new workspace
+- saved views now persist node positions from the current rendered graph
+- the focused node is carried into workspace metadata and saved as pinned state
+- saved workspaces can be reopened immediately on the graph page through the existing `workspace` overlay flow
+
+## Remaining W3 Gaps
+
+- pin or unpin actions are not yet editable from the graph page after save
+- manual notes are not yet writable from the graph page
+- manual relations are not yet writable from the graph page
+- workspace save currently creates a new view instead of updating an existing one

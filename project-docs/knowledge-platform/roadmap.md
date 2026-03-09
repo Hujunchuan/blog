@@ -76,7 +76,9 @@ Status:
 - `W2` read overlay is now in place on `/source/[sourceId]/graph`
 - workspace views can now be listed and loaded through `/api/workspaces` and `/api/workspaces/[workspaceId]`
 - saved node positions, pinned state, and manual overlay nodes or edges can now be layered onto the extracted graph
-- write-side workspace UI has not started yet
+- `W3` has started with save-current-view support on the graph page
+- current write support creates a new workspace from the visible subgraph and reopens it as an overlay
+- pin editing, notes, manual relations, and update-in-place flows are still pending
 
 Milestones:
 
