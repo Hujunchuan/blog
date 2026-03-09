@@ -87,6 +87,23 @@ type WorkspaceOverlayResult = {
   workspaceNodeMap: Map<string, WorkspaceView["nodes"][number]>
 }
 
+type SourceOption = {
+  id: string
+  name: string
+}
+
+type SourceListResponse = {
+  items?: Array<{
+    id: string
+    name: string
+  }>
+}
+
+type GraphResponse = {
+  nodes?: KnowledgeGraphNode[]
+  edges?: KnowledgeGraphEdge[]
+}
+
 type WorkspaceCreateResponse = {
   status?: string
   message?: string
@@ -142,12 +159,8 @@ const groupLabels: Record<string, string> = {
 groupLabels.workspace = "工作台"
 groupLabels.reference = "外部引用"
 
-function workspaceGraphNodeId(
-  currentSourceId: string,
-  workspace: WorkspaceView,
-  node: WorkspaceView["nodes"][number],
-) {
-  const baseId = node.entityKey ?? node.documentSlug ?? `workspace:${workspace.id}:node:${node.id}`
+function workspaceGraphNodeId(currentSourceId: string, workspaceId: string, node: WorkspaceView["nodes"][number]) {
+  const baseId = node.entityKey ?? node.documentSlug ?? `workspace:${workspaceId}:node:${node.id}`
   if (node.sourceId && node.sourceId !== currentSourceId) {
     return `external:${node.sourceId}:${baseId}`
   }
@@ -178,7 +191,7 @@ function mergeGraphWithWorkspace(
   const workspaceNodeMap = new Map<string, string>()
 
   for (const workspaceNode of workspace.nodes) {
-    const graphNodeId = workspaceGraphNodeId(currentSourceId, workspace, workspaceNode)
+    const graphNodeId = workspaceGraphNodeId(currentSourceId, workspace.id, workspaceNode)
     const isExternalSource = Boolean(workspaceNode.sourceId && workspaceNode.sourceId !== currentSourceId)
     workspaceNodeMap.set(workspaceNode.id, graphNodeId)
     workspaceNodeIndex.set(graphNodeId, workspaceNode)
@@ -231,6 +244,15 @@ function mergeGraphWithWorkspace(
     nodeOverlay,
     workspaceNodeMap: workspaceNodeIndex,
   }
+}
+
+function uniqueSourceIds(values: Array<string | undefined>) {
+  return [...new Set(values.filter((value): value is string => Boolean(value && value.trim())).map((value) => value.trim()))]
+}
+
+function buildDraftWorkspaceNodeId(targetSourceId: string, node: Pick<KnowledgeGraphNode, "id" | "entityKey" | "slug">) {
+  const token = node.entityKey ?? (node.slug ? `slug:${node.slug}` : `graph:${node.id}`)
+  return `draft:${targetSourceId}:${encodeURIComponent(token)}`
 }
 
 function hashValue(value: string) {
@@ -594,8 +616,49 @@ export function QuartzGraphView({
   const [workspaceSaving, setWorkspaceSaving] = useState(false)
   const [noteBody, setNoteBody] = useState("")
   const [relationTarget, setRelationTarget] = useState("")
+  const [draftNodes, setDraftNodes] = useState<WorkspaceView["nodes"][number][]>([])
+  const [draftEdges, setDraftEdges] = useState<WorkspaceView["edges"][number][]>([])
+  const [availableSources, setAvailableSources] = useState<SourceOption[]>([])
+  const [externalSourceId, setExternalSourceId] = useState("")
+  const [externalQuery, setExternalQuery] = useState("")
+  const [externalResults, setExternalResults] = useState<KnowledgeGraphNode[]>([])
+  const [externalLoading, setExternalLoading] = useState(false)
   const [rendererReadyTick, setRendererReadyTick] = useState(0)
-  const workspaceOverlay = useMemo(() => mergeGraphWithWorkspace(graph, workspace, sourceId), [graph, sourceId, workspace])
+  const externalGraphCacheRef = useRef<Map<string, { nodes: KnowledgeGraphNode[]; edges: KnowledgeGraphEdge[] }>>(
+    new Map(),
+  )
+  const effectiveWorkspace = useMemo<WorkspaceView | null>(() => {
+    if (!workspace && draftNodes.length === 0 && draftEdges.length === 0) {
+      return null
+    }
+
+    const sourceScopeIds = uniqueSourceIds([
+      ...(workspace?.sourceScope.sourceIds ?? []),
+      sourceId,
+      ...draftNodes.map((node) => node.sourceId),
+    ])
+
+    return {
+      id: workspace?.id ?? "draft",
+      name: workspace?.name ?? "未保存工作台",
+      description: workspace?.description,
+      sourceScope: {
+        sourceIds: sourceScopeIds,
+      },
+      layoutMode: workspace?.layoutMode ?? "local",
+      owner: workspace?.owner,
+      metadata: workspace?.metadata ?? {},
+      createdAt: workspace?.createdAt ?? "",
+      updatedAt: workspace?.updatedAt ?? "",
+      nodes: [...(workspace?.nodes ?? []), ...draftNodes],
+      edges: [...(workspace?.edges ?? []), ...draftEdges],
+      annotations: workspace?.annotations ?? [],
+    }
+  }, [draftEdges, draftNodes, sourceId, workspace])
+  const workspaceOverlay = useMemo(
+    () => mergeGraphWithWorkspace(graph, effectiveWorkspace, sourceId),
+    [effectiveWorkspace, graph, sourceId],
+  )
   const effectiveGraph = workspaceOverlay.graph
   const graphPickerId = useId()
   const relationPickerId = useId()
@@ -619,6 +682,10 @@ export function QuartzGraphView({
         .sort((left, right) => right.weight - left.weight || left.label.localeCompare(right.label, "zh-CN"))
         .slice(0, 240),
     [effectiveGraph.nodes],
+  )
+  const otherSourceOptions = useMemo(
+    () => availableSources.filter((item) => item.id !== sourceId),
+    [availableSources, sourceId],
   )
 
   const scheduleRender = () => {
@@ -744,6 +811,58 @@ export function QuartzGraphView({
     setRelationTarget("")
   }, [selectedNode?.id])
 
+  useEffect(() => {
+    setDraftNodes([])
+    setDraftEdges([])
+    setExternalResults([])
+    setExternalQuery("")
+    setWorkspaceMessage(undefined)
+  }, [mode, sourceId, workspace?.id])
+
+  useEffect(() => {
+    if (variant !== "local") {
+      return
+    }
+
+    let cancelled = false
+    void fetch("/api/sources", { cache: "no-store" })
+      .then((response) => response.json() as Promise<SourceListResponse>)
+      .then((payload) => {
+        if (cancelled) {
+          return
+        }
+
+        const items =
+          payload.items
+            ?.filter((item): item is SourceOption => Boolean(item?.id && item?.name))
+            .map((item) => ({
+              id: item.id,
+              name: item.name,
+            })) ?? []
+        setAvailableSources(items)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAvailableSources([])
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [variant])
+
+  useEffect(() => {
+    if (otherSourceOptions.length === 0) {
+      setExternalSourceId("")
+      return
+    }
+
+    setExternalSourceId((current) =>
+      current && otherSourceOptions.some((item) => item.id === current) ? current : otherSourceOptions[0].id,
+    )
+  }, [otherSourceOptions])
+
   const focusNode = (nodeId: string | undefined) => {
     if (!nodeId) {
       return
@@ -769,6 +888,90 @@ export function QuartzGraphView({
     })
   }
 
+  const getExternalGraph = async (targetSourceId: string) => {
+    const cacheKey = `${targetSourceId}:${mode}`
+    const cached = externalGraphCacheRef.current.get(cacheKey)
+    if (cached) {
+      return cached
+    }
+
+    const response = await fetch(
+      `/api/source/${encodeURIComponent(targetSourceId)}/graph?mode=${encodeURIComponent(mode)}`,
+      { cache: "no-store" },
+    )
+    const payload = (await response.json()) as GraphResponse
+    if (!response.ok || !payload.nodes || !payload.edges) {
+      throw new Error("加载外部知识源图谱失败")
+    }
+
+    const result = {
+      nodes: payload.nodes,
+      edges: payload.edges,
+    }
+    externalGraphCacheRef.current.set(cacheKey, result)
+    return result
+  }
+
+  const findWorkspaceNodeForGraphNode = (node: GraphNodeData) => {
+    return workspaceOverlay.workspaceNodeMap.get(node.id)
+  }
+
+  const buildDraftWorkspaceNode = (
+    targetSourceId: string,
+    node: Pick<GraphNodeData, "id" | "entityKey" | "slug" | "label" | "sourceId" | "group" | "weight">,
+    layout?: { x?: number; y?: number; pinned?: boolean },
+  ): WorkspaceView["nodes"][number] => {
+    const timestamp = new Date().toISOString()
+    return {
+      id: buildDraftWorkspaceNodeId(targetSourceId, node),
+      workspaceViewId: workspace?.id ?? "draft",
+      sourceId: targetSourceId,
+      nodeType: workspaceNodeTypeForGraphNode(node),
+      entityKey: node.entityKey,
+      documentSlug: node.slug,
+      label: node.label,
+      x: layout?.x ?? 0,
+      y: layout?.y ?? 0,
+      pinned: Boolean(layout?.pinned),
+      collapsed: false,
+      metadata: {
+        group: node.group,
+        weight: node.weight,
+        sourceGraphId: node.id,
+      },
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+  }
+
+  const mergeDraftWorkspaceChange = ({
+    nodes,
+    edges,
+  }: {
+    nodes: WorkspaceView["nodes"][number][]
+    edges: WorkspaceView["edges"][number][]
+  }) => {
+    if (nodes.length > 0) {
+      setDraftNodes((current) => {
+        const next = new Map(current.map((item) => [item.id, item]))
+        for (const node of nodes) {
+          next.set(node.id, node)
+        }
+        return [...next.values()]
+      })
+    }
+
+    if (edges.length > 0) {
+      setDraftEdges((current) => {
+        const next = new Map(current.map((item) => [item.id, item]))
+        for (const edge of edges) {
+          next.set(edge.id, edge)
+        }
+        return [...next.values()]
+      })
+    }
+  }
+
   const handleFocusSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const match = resolveNodeFromQuery(searchValue)
@@ -778,6 +981,169 @@ export function QuartzGraphView({
 
     focusNode(match.id)
     setSearchValue(match.label)
+  }
+
+  const handleSearchExternalNodes = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const query = externalQuery.trim().toLowerCase()
+    if (!externalSourceId || !query) {
+      return
+    }
+
+    setExternalLoading(true)
+    setWorkspaceMessage("正在搜索外部知识源节点...")
+    try {
+      const externalGraph = await getExternalGraph(externalSourceId)
+      const matches = externalGraph.nodes
+        .filter((node) => {
+          return (
+            node.label.toLowerCase().includes(query) ||
+            node.slug?.toLowerCase().includes(query) ||
+            node.entityKey?.toLowerCase().includes(query)
+          )
+        })
+        .sort((left, right) => right.weight - left.weight || left.label.localeCompare(right.label, "zh-CN"))
+        .slice(0, 8)
+
+      setExternalResults(matches)
+      setWorkspaceMessage(matches.length > 0 ? `已找到 ${matches.length} 个外部节点` : "没有匹配的外部节点")
+    } catch (error) {
+      setExternalResults([])
+      setWorkspaceMessage(error instanceof Error ? error.message : "搜索外部知识源失败")
+    } finally {
+      setExternalLoading(false)
+    }
+  }
+
+  const handleAttachExternalNode = (externalNode: KnowledgeGraphNode) => {
+    const anchorNode =
+      selectedNode ??
+      (rootNode
+        ? ({
+            ...rootNode,
+            sourceId,
+            radius: 0,
+            color: colorForGroup(rootNode.group),
+            pinned: false,
+            x: 0,
+            y: 0,
+          } satisfies GraphNodeData)
+        : undefined)
+    if (!anchorNode) {
+      return
+    }
+
+    const existingAnchorWorkspaceNode = findWorkspaceNodeForGraphNode(anchorNode)
+    const anchorWorkspaceNode =
+      existingAnchorWorkspaceNode ??
+      buildDraftWorkspaceNode(anchorNode.sourceId, anchorNode, {
+        x: Number((anchorNode.x ?? 0).toFixed(2)),
+        y: Number((anchorNode.y ?? 0).toFixed(2)),
+        pinned: anchorNode.pinned,
+      })
+
+    const externalWorkspaceNode = buildDraftWorkspaceNode(externalSourceId, {
+      ...externalNode,
+      sourceId: externalSourceId,
+    } as GraphNodeData, {
+      x: Number(((anchorNode.x ?? 0) + 160).toFixed(2)),
+      y: Number(((anchorNode.y ?? 0) + 64).toFixed(2)),
+    })
+
+    const edgeId = `draft-edge:${anchorWorkspaceNode.id}:${externalWorkspaceNode.id}`
+    mergeDraftWorkspaceChange({
+      nodes: [...(existingAnchorWorkspaceNode ? [] : [anchorWorkspaceNode]), externalWorkspaceNode],
+      edges: [
+        {
+          id: edgeId,
+          workspaceViewId: workspace?.id ?? "draft",
+          fromNodeId: anchorWorkspaceNode.id,
+          toNodeId: externalWorkspaceNode.id,
+          edgeType: "manual",
+          weight: 1,
+          metadata: {
+            kind: "cross_source_reference",
+          },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+    })
+
+    const nextFocusId = workspaceGraphNodeId(sourceId, workspace?.id ?? "draft", externalWorkspaceNode)
+    setSelectedNodeId(nextFocusId)
+    setFocusNodeId(nextFocusId)
+    setWorkspaceMessage(`已引用外部节点：${externalNode.label}`)
+  }
+
+  const handleExpandExternalNeighbors = async () => {
+    if (!selectedNode || selectedNode.sourceId === sourceId) {
+      return
+    }
+
+    const existingSelectedWorkspaceNode = findWorkspaceNodeForGraphNode(selectedNode)
+    const selectedWorkspaceNode =
+      existingSelectedWorkspaceNode ??
+      buildDraftWorkspaceNode(selectedNode.sourceId, selectedNode, {
+        x: Number((selectedNode.x ?? 0).toFixed(2)),
+        y: Number((selectedNode.y ?? 0).toFixed(2)),
+        pinned: selectedNode.pinned,
+      })
+
+    setExternalLoading(true)
+    setWorkspaceMessage("正在展开外部一跳邻域...")
+    try {
+      const externalGraph = await getExternalGraph(selectedNode.sourceId)
+      const root =
+        externalGraph.nodes.find((node) => node.entityKey && node.entityKey === selectedNode.entityKey) ??
+        externalGraph.nodes.find((node) => node.slug && node.slug === selectedNode.slug) ??
+        externalGraph.nodes.find((node) => node.id === selectedNode.entityKey || node.id === selectedNode.slug)
+
+      if (!root) {
+        throw new Error("没有找到外部节点的原始图谱位置")
+      }
+
+      const externalEdges = externalGraph.edges.filter((edge) => edge.source === root.id || edge.target === root.id)
+      const neighborIds = [...new Set(externalEdges.map((edge) => (edge.source === root.id ? edge.target : edge.source)))]
+      const neighborNodes = neighborIds
+        .map((id) => externalGraph.nodes.find((node) => node.id === id))
+        .filter((node): node is KnowledgeGraphNode => Boolean(node))
+        .slice(0, 10)
+
+      const nodesToAdd = [...(existingSelectedWorkspaceNode ? [] : [selectedWorkspaceNode])]
+      const edgesToAdd: WorkspaceView["edges"][number][] = []
+
+      neighborNodes.forEach((node, index) => {
+        const workspaceNode = buildDraftWorkspaceNode(selectedNode.sourceId, { ...node, sourceId: selectedNode.sourceId } as GraphNodeData, {
+          x: Number(((selectedNode.x ?? 0) + 140 + (index % 3) * 72).toFixed(2)),
+          y: Number(((selectedNode.y ?? 0) - 40 + Math.floor(index / 3) * 72).toFixed(2)),
+        })
+        nodesToAdd.push(workspaceNode)
+        edgesToAdd.push({
+          id: `draft-edge:${selectedWorkspaceNode.id}:${workspaceNode.id}`,
+          workspaceViewId: workspace?.id ?? "draft",
+          fromNodeId: selectedWorkspaceNode.id,
+          toNodeId: workspaceNode.id,
+          edgeType: "manual",
+          weight: 1,
+          metadata: {
+            kind: "external_one_hop",
+          },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        })
+      })
+
+      mergeDraftWorkspaceChange({
+        nodes: nodesToAdd,
+        edges: edgesToAdd,
+      })
+      setWorkspaceMessage(`已展开 ${neighborNodes.length} 个外部邻居节点`)
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "展开外部邻域失败")
+    } finally {
+      setExternalLoading(false)
+    }
   }
 
   const buildWorkspaceCaptureNodes = (resolvePinned: (node: GraphNodeData) => boolean) => {
@@ -1710,6 +2076,18 @@ export function QuartzGraphView({
                   {selectedNode.pinned ? "释放固定" : "固定节点"}
                 </button>
               )}
+              {variant === "local" && selectedNode.sourceId !== sourceId && (
+                <button
+                  type="button"
+                  className="graph-inline-button"
+                  disabled={externalLoading}
+                  onClick={() => {
+                    void handleExpandExternalNeighbors()
+                  }}
+                >
+                  {externalLoading ? "展开中..." : "展开外部一跳"}
+                </button>
+              )}
             </div>
             <div className="action-row">
               {analysisSectionHref(selectedNode.sourceId, mode, selectedNode, "related") && (
@@ -1820,6 +2198,63 @@ export function QuartzGraphView({
                   </button>
                 </div>
               </form>
+            </div>
+          )}
+
+          {variant === "local" && (
+            <div className="result-card">
+              <h3>跨源引用</h3>
+              {otherSourceOptions.length > 0 ? (
+                <>
+                  <form className="graph-stack-form" onSubmit={handleSearchExternalNodes}>
+                    <select
+                      className="graph-focus-input"
+                      value={externalSourceId}
+                      onChange={(event) => setExternalSourceId(event.target.value)}
+                    >
+                      {otherSourceOptions.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      className="graph-focus-input"
+                      value={externalQuery}
+                      onChange={(event) => setExternalQuery(event.target.value)}
+                      placeholder="搜索外部节点名称、slug 或 entity key"
+                    />
+                    <div className="action-row">
+                      <button
+                        type="submit"
+                        className="graph-inline-button"
+                        disabled={externalLoading || !externalSourceId || !externalQuery.trim()}
+                      >
+                        {externalLoading ? "搜索中..." : "搜索节点"}
+                      </button>
+                    </div>
+                  </form>
+                  <div className="result-list">
+                    {externalResults.map((node) => (
+                      <button
+                        key={`${externalSourceId}:${node.id}`}
+                        type="button"
+                        className="graph-node-button"
+                        onClick={() => handleAttachExternalNode(node)}
+                      >
+                        <strong>{node.label}</strong>
+                        <small>{`${node.entityKey ?? node.slug ?? node.id} · 权重 ${node.weight}`}</small>
+                      </button>
+                    ))}
+                    {externalResults.length === 0 && (
+                      <div className="empty-state">搜索外部知识源后，可将节点引用进当前图谱。</div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="empty-state">当前还没有可引用的其他知识源。</div>
+              )}
             </div>
           )}
         </div>

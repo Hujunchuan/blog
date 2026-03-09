@@ -326,9 +326,10 @@ The first workspace-node phase is complete when:
 - graph overlays can now distinguish same-source nodes from external-source nodes
 - external-source workspace nodes no longer collide with current-source entity keys or document slugs
 - graph-side node jumps now open the node in its owning source instead of always using the current graph page source
+- the graph page can now search other configured knowledge sources and attach external nodes into the current workspace overlay
+- selected external nodes can now expand one-hop neighbors from their owning source without switching away from the current graph page
 
 ## Remaining W4 Gaps
 
-- graph overlays still render external nodes as lightweight references rather than loading their full source graph neighborhood
-- workspace creation still starts from a single graph page and does not yet provide a cross-source node picker
+- expanded external neighbors are still added as lightweight overlay references rather than a full cross-source graph merge
 - cross-source search and cross-source graph assembly are still pending

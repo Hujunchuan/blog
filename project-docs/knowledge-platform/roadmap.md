@@ -80,6 +80,7 @@ Status:
 - current write support can now create a workspace, refresh the current workspace from the visible subgraph, toggle node pin state, add node notes, and add manual relations
 - `W4` has started with source-aware workspace nodes and multi-source source-scope capture
 - graph overlays can now preserve external-source workspace nodes without colliding with current-source graph ids
+- graph-side workspace editing can now attach external nodes from other configured sources and expand an external one-hop neighborhood in place
 - the remaining gap is that layout and pin edits still persist through full capture replacement rather than fine-grained mutation, and true cross-source graph assembly is still pending
 
 Milestones:
