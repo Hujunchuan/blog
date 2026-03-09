@@ -151,6 +151,45 @@ function analysisHref(sourceId: string, mode: KnowledgeGraphMode, node: Knowledg
   return undefined
 }
 
+function buildKnowledgeAnalysisUrl(
+  sourceId: string,
+  input: {
+    slug?: string
+    entityKey?: string
+  },
+) {
+  const params = new URLSearchParams()
+  if (input.slug) {
+    params.set("slug", input.slug)
+  }
+  if (input.entityKey) {
+    params.set("entityKey", input.entityKey)
+  }
+
+  const query = params.toString()
+  return `/source/${encodeURIComponent(sourceId)}/knowledge${query ? `?${query}` : ""}`
+}
+
+function analysisSectionHref(
+  sourceId: string,
+  mode: KnowledgeGraphMode,
+  node: KnowledgeGraphNode,
+  section: "related" | "impact" | "evidence",
+) {
+  const base =
+    mode === "knowledge"
+      ? node.entityKey
+        ? buildKnowledgeAnalysisUrl(sourceId, { entityKey: node.entityKey })
+        : node.slug
+          ? buildKnowledgeAnalysisUrl(sourceId, { slug: node.slug })
+          : undefined
+      : node.slug
+        ? buildKnowledgeAnalysisUrl(sourceId, { slug: node.slug })
+        : undefined
+
+  return base ? `${base}#${section}` : undefined
+}
+
 function clampScale(scale: number) {
   return Math.min(2.8, Math.max(0.65, scale))
 }
@@ -1095,6 +1134,35 @@ export function QuartzGraphView({
               {analysisHref(sourceId, mode, selectedNode) && (
                 <Link href={analysisHref(sourceId, mode, selectedNode)!} className="ghost-link" prefetch={false}>
                   打开节点
+                </Link>
+              )}
+            </div>
+            <div className="action-row">
+              {analysisSectionHref(sourceId, mode, selectedNode, "related") && (
+                <Link
+                  href={analysisSectionHref(sourceId, mode, selectedNode, "related")!}
+                  className="ghost-link"
+                  prefetch={false}
+                >
+                  相关关系
+                </Link>
+              )}
+              {analysisSectionHref(sourceId, mode, selectedNode, "impact") && (
+                <Link
+                  href={analysisSectionHref(sourceId, mode, selectedNode, "impact")!}
+                  className="ghost-link"
+                  prefetch={false}
+                >
+                  影响分析
+                </Link>
+              )}
+              {analysisSectionHref(sourceId, mode, selectedNode, "evidence") && (
+                <Link
+                  href={analysisSectionHref(sourceId, mode, selectedNode, "evidence")!}
+                  className="ghost-link"
+                  prefetch={false}
+                >
+                  证据文档
                 </Link>
               )}
             </div>

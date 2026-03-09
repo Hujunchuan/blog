@@ -424,6 +424,10 @@ a:hover {
   gap: 20px;
 }
 
+.analysis-section {
+  scroll-margin-top: 96px;
+}
+
 .graph-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);

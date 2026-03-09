@@ -486,7 +486,7 @@ export default async function KnowledgePage({
           </section>
 
           <div className="analysis-grid">
-            <section className="panel">
+            <section id="related" className="panel analysis-section">
               <div className="panel-header">
                 <div>
                   <h2>{"\u76F8\u5173\u5173\u7CFB"}</h2>
@@ -547,7 +547,7 @@ export default async function KnowledgePage({
               </div>
             </section>
 
-            <section className="panel">
+            <section id="impact" className="panel analysis-section">
               <div className="panel-header">
                 <div>
                   <h2>{"\u5F71\u54CD\u5206\u6790"}</h2>
@@ -600,7 +600,7 @@ export default async function KnowledgePage({
             </section>
           </div>
 
-          <section className="panel">
+          <section id="evidence" className="panel analysis-section">
             <div className="panel-header">
               <div>
                 <h2>{"\u8BC1\u636E\u6587\u6863"}</h2>
