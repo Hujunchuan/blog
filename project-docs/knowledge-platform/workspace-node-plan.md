@@ -284,3 +284,20 @@ The first workspace-node phase is complete when:
   - update node layout
   - create workspace edge
   - create workspace annotation
+
+## Current W2 Scope Landed
+
+- `GET /api/workspaces` is now available
+- `GET /api/workspaces/[workspaceId]` is now available
+- the graph page can now load a workspace overlay through the `workspace` query parameter
+- saved node positions are now applied on top of the extracted graph
+- saved pinned state is now applied on top of the extracted graph
+- manual workspace-only nodes and edges can now be rendered as overlay state
+- the extracted graph remains the base layer and workspace data is read as an additive overlay
+
+## Remaining W2 Gaps
+
+- there is not yet a UI to create or save a workspace from the graph page
+- there is not yet a UI to pin or unpin nodes from the graph page
+- there is not yet a UI to create manual notes or manual relations
+- there is not yet a workspace switcher with editing actions

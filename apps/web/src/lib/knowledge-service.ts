@@ -7,7 +7,9 @@ import {
   getPersistedImpact,
   getPersistedOverview,
   getPersistedRelated,
+  getWorkspaceView as getPersistedWorkspaceView,
   isDatabaseConfigured,
+  listWorkspaceViews as listPersistedWorkspaceViews,
   searchPersistedDocuments,
 } from "@repo/db/index"
 import {
@@ -19,6 +21,8 @@ import {
   KnowledgeSnapshot,
   KnowledgeSource,
   ParsedKnowledgeDocument,
+  WorkspaceView,
+  WorkspaceViewSummary,
 } from "@repo/core/types"
 import { MarkdownKnowledgeParser } from "@repo/parser/markdownParser"
 import { buildKnowledgeImpact, buildKnowledgeNervousSystem } from "@repo/sync/nervousSystem"
@@ -156,6 +160,30 @@ export async function getGraph(sourceId: string, mode: KnowledgeGraphMode = "doc
   }
 
   return snapshot.graph
+}
+
+export async function listWorkspaceViews(sourceId?: string): Promise<WorkspaceViewSummary[]> {
+  if (!isDatabaseConfigured()) {
+    return []
+  }
+
+  try {
+    return await listPersistedWorkspaceViews({ sourceId })
+  } catch {
+    return []
+  }
+}
+
+export async function getWorkspaceView(workspaceId: string): Promise<WorkspaceView | null> {
+  if (!isDatabaseConfigured()) {
+    return null
+  }
+
+  try {
+    return await getPersistedWorkspaceView(workspaceId)
+  } catch {
+    return null
+  }
 }
 
 export async function getRelatedKnowledge(
@@ -457,7 +485,7 @@ export function knowledgeAnalysisUrl(
 
 export function graphUrl(
   sourceId: string,
-  input: { mode?: KnowledgeGraphMode; focus?: string } = {},
+  input: { mode?: KnowledgeGraphMode; focus?: string; workspace?: string } = {},
 ) {
   const params = new URLSearchParams()
   if (input.mode) {
@@ -465,6 +493,9 @@ export function graphUrl(
   }
   if (input.focus) {
     params.set("focus", input.focus)
+  }
+  if (input.workspace) {
+    params.set("workspace", input.workspace)
   }
 
   const query = params.toString()

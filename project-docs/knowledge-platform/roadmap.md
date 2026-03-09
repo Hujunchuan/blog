@@ -73,7 +73,10 @@ Status:
 
 - technical design is now defined
 - `W1` schema and repository primitives are now in place
-- graph overlay UI has not started yet
+- `W2` read overlay is now in place on `/source/[sourceId]/graph`
+- workspace views can now be listed and loaded through `/api/workspaces` and `/api/workspaces/[workspaceId]`
+- saved node positions, pinned state, and manual overlay nodes or edges can now be layered onto the extracted graph
+- write-side workspace UI has not started yet
 
 Milestones:
 

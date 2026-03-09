@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic"
 import { useEffect, useState } from "react"
-import { KnowledgeGraphMode, KnowledgeGraphNode, KnowledgeGraphEdge } from "@repo/core/types"
+import { KnowledgeGraphEdge, KnowledgeGraphMode, KnowledgeGraphNode, WorkspaceView } from "@repo/core/types"
 
 const QuartzGraphView = dynamic(
   () => import("@/components/quartz-graph-view").then((module) => module.QuartzGraphView),
@@ -17,6 +17,7 @@ export function GraphViewShell({
   mode,
   graph,
   initialFocus,
+  workspace,
 }: {
   sourceId: string
   mode: KnowledgeGraphMode
@@ -25,6 +26,7 @@ export function GraphViewShell({
     edges: KnowledgeGraphEdge[]
   }
   initialFocus?: string
+  workspace?: WorkspaceView | null
 }) {
   const [globalOpen, setGlobalOpen] = useState(false)
   const [focusNodeId, setFocusNodeId] = useState<string | undefined>(initialFocus)
@@ -60,6 +62,7 @@ export function GraphViewShell({
         sourceId={sourceId}
         mode={mode}
         graph={graph}
+        workspace={workspace}
         initialFocus={focusNodeId}
         variant="local"
         onFocusChange={setFocusNodeId}
@@ -79,6 +82,7 @@ export function GraphViewShell({
               sourceId={sourceId}
               mode={mode}
               graph={graph}
+              workspace={workspace}
               initialFocus={focusNodeId}
               variant="global"
               onFocusChange={setFocusNodeId}

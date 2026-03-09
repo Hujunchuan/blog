@@ -21,7 +21,7 @@ import {
   SimulationLinkDatum,
   SimulationNodeDatum,
 } from "d3-force"
-import { KnowledgeGraphEdge, KnowledgeGraphMode, KnowledgeGraphNode } from "@repo/core/types"
+import { KnowledgeGraphEdge, KnowledgeGraphMode, KnowledgeGraphNode, WorkspaceView } from "@repo/core/types"
 
 const palette = ["#6b7c88", "#b7793f", "#62824b", "#8b6075", "#4d7190", "#7d6948"]
 const groupColorMap: Partial<Record<string, string>> = {
@@ -35,6 +35,8 @@ const groupColorMap: Partial<Record<string, string>> = {
   decision: "#706894",
   task: "#6d8751",
   practice: "#4b7d78",
+  workspace: "#6f648f",
+  reference: "#8a6248",
 }
 const LOCAL_CANVAS_WIDTH = 960
 const LOCAL_CANVAS_HEIGHT = 560
@@ -61,6 +63,21 @@ type RenderGraph = {
   edges: GraphLinkData[]
   adjacency: Map<string, Set<string>>
   degreeMap: Map<string, number>
+}
+
+type WorkspaceNodeOverlay = {
+  x?: number
+  y?: number
+  pinned: boolean
+  collapsed: boolean
+}
+
+type WorkspaceOverlayResult = {
+  graph: {
+    nodes: KnowledgeGraphNode[]
+    edges: KnowledgeGraphEdge[]
+  }
+  nodeOverlay: Map<string, WorkspaceNodeOverlay>
 }
 
 type ViewTransform = {
@@ -104,6 +121,85 @@ const groupLabels: Record<string, string> = {
   decision: "决策",
   task: "任务",
   practice: "实践",
+}
+
+groupLabels.workspace = "工作台"
+groupLabels.reference = "外部引用"
+
+function workspaceGraphNodeId(workspace: WorkspaceView, node: WorkspaceView["nodes"][number]) {
+  return node.entityKey ?? node.documentSlug ?? `workspace:${workspace.id}:node:${node.id}`
+}
+
+function mergeGraphWithWorkspace(
+  graph: {
+    nodes: KnowledgeGraphNode[]
+    edges: KnowledgeGraphEdge[]
+  },
+  workspace: WorkspaceView | null | undefined,
+): WorkspaceOverlayResult {
+  if (!workspace) {
+    return {
+      graph,
+      nodeOverlay: new Map(),
+    }
+  }
+
+  const nodes = new Map(graph.nodes.map((node) => [node.id, node]))
+  const edges = [...graph.edges]
+  const nodeOverlay = new Map<string, WorkspaceNodeOverlay>()
+  const workspaceNodeMap = new Map<string, string>()
+
+  for (const workspaceNode of workspace.nodes) {
+    const graphNodeId = workspaceGraphNodeId(workspace, workspaceNode)
+    workspaceNodeMap.set(workspaceNode.id, graphNodeId)
+    nodeOverlay.set(graphNodeId, {
+      x: workspaceNode.x,
+      y: workspaceNode.y,
+      pinned: workspaceNode.pinned,
+      collapsed: workspaceNode.collapsed,
+    })
+
+    if (!nodes.has(graphNodeId)) {
+      nodes.set(graphNodeId, {
+        id: graphNodeId,
+        label: workspaceNode.label,
+        slug: workspaceNode.documentSlug,
+        entityKey: workspaceNode.entityKey,
+        group: workspaceNode.nodeType === "reference" ? "reference" : "workspace",
+        weight: workspaceNode.pinned ? 2 : 1,
+      })
+    }
+  }
+
+  const existingEdges = new Set(edges.map((edge) => `${edge.source}->${edge.target}`))
+  for (const workspaceEdge of workspace.edges) {
+    const source = workspaceNodeMap.get(workspaceEdge.fromNodeId)
+    const target = workspaceNodeMap.get(workspaceEdge.toNodeId)
+    if (!source || !target || source === target) {
+      continue
+    }
+
+    const key = `${source}->${target}`
+    if (existingEdges.has(key)) {
+      continue
+    }
+
+    existingEdges.add(key)
+    edges.push({
+      source,
+      target,
+      relationTypes: ["related_to"],
+      weight: workspaceEdge.weight ?? 1,
+    })
+  }
+
+  return {
+    graph: {
+      nodes: [...nodes.values()],
+      edges,
+    },
+    nodeOverlay,
+  }
 }
 
 function hashValue(value: string) {
@@ -254,6 +350,7 @@ function buildRenderGraph(
   focusNodeId: string,
   depth: Depth,
   variant: GraphVariant,
+  nodeOverlay: Map<string, WorkspaceNodeOverlay>,
 ) {
   const nodeIds = new Set(nodes.map((node) => node.id))
   const adjacency = buildAdjacency(edges, nodeIds)
@@ -290,13 +387,22 @@ function buildRenderGraph(
 
   const keptNodes: GraphNodeData[] = neighborhoodNodes
     .filter((node) => keptIds.has(node.id))
-    .map((node) => ({
-      ...node,
-      radius: (node.id === focusNodeId ? 12 : 7.5) + Math.min(node.weight, 10) * (node.id === focusNodeId ? 0.35 : 0.18),
-      color: colorForGroup(node.group),
-      x: node.id === focusNodeId ? 0 : undefined,
-      y: node.id === focusNodeId ? 0 : undefined,
-    }))
+    .map((node) => {
+      const overlay = nodeOverlay.get(node.id)
+      const x = typeof overlay?.x === "number" ? overlay.x : node.id === focusNodeId ? 0 : undefined
+      const y = typeof overlay?.y === "number" ? overlay.y : node.id === focusNodeId ? 0 : undefined
+
+      return {
+        ...node,
+        radius:
+          (node.id === focusNodeId ? 12 : 7.5) + Math.min(node.weight, 10) * (node.id === focusNodeId ? 0.35 : 0.18),
+        color: colorForGroup(node.group),
+        x,
+        y,
+        fx: overlay?.pinned && typeof x === "number" ? x : undefined,
+        fy: overlay?.pinned && typeof y === "number" ? y : undefined,
+      }
+    })
 
   const keptNodeIds = new Set(keptNodes.map((node) => node.id))
   const keptEdges = neighborhoodEdges
@@ -365,6 +471,7 @@ export function QuartzGraphView({
   sourceId,
   mode,
   graph,
+  workspace,
   initialFocus,
   variant = "local",
   onFocusChange,
@@ -377,6 +484,7 @@ export function QuartzGraphView({
     nodes: KnowledgeGraphNode[]
     edges: KnowledgeGraphEdge[]
   }
+  workspace?: WorkspaceView | null
   initialFocus?: string
   variant?: GraphVariant
   onFocusChange?: (nodeId: string | undefined) => void
@@ -414,27 +522,29 @@ export function QuartzGraphView({
   const [depth, setDepth] = useState<Depth>(variant === "global" ? 2 : 1)
   const [searchValue, setSearchValue] = useState("")
   const [rendererReadyTick, setRendererReadyTick] = useState(0)
+  const workspaceOverlay = useMemo(() => mergeGraphWithWorkspace(graph, workspace), [graph, workspace])
+  const effectiveGraph = workspaceOverlay.graph
   const graphPickerId = useId()
   const defaultFocusNodeId = useMemo(() => {
-    if (initialFocus && graph.nodes.some((node) => node.id === initialFocus)) {
+    if (initialFocus && effectiveGraph.nodes.some((node) => node.id === initialFocus)) {
       return initialFocus
     }
 
-    return [...graph.nodes]
+    return [...effectiveGraph.nodes]
       .sort((left, right) => right.weight - left.weight || left.label.localeCompare(right.label, "zh-CN"))[0]?.id
-  }, [graph.nodes, initialFocus])
+  }, [effectiveGraph.nodes, initialFocus])
   const [focusNodeId, setFocusNodeId] = useState<string | undefined>(defaultFocusNodeId)
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(defaultFocusNodeId)
   const rootNode = useMemo(
-    () => graph.nodes.find((node) => node.id === defaultFocusNodeId),
-    [defaultFocusNodeId, graph.nodes],
+    () => effectiveGraph.nodes.find((node) => node.id === defaultFocusNodeId),
+    [defaultFocusNodeId, effectiveGraph.nodes],
   )
   const graphOptions = useMemo(
     () =>
-      [...graph.nodes]
+      [...effectiveGraph.nodes]
         .sort((left, right) => right.weight - left.weight || left.label.localeCompare(right.label, "zh-CN"))
         .slice(0, 240),
-    [graph.nodes],
+    [effectiveGraph.nodes],
   )
 
   const scheduleRender = () => {
@@ -458,13 +568,13 @@ export function QuartzGraphView({
   }, [variant])
 
   useEffect(() => {
-    if (!initialFocus || !graph.nodes.some((node) => node.id === initialFocus)) {
+    if (!initialFocus || !effectiveGraph.nodes.some((node) => node.id === initialFocus)) {
       return
     }
 
     setFocusNodeId((current) => (current === initialFocus ? current : initialFocus))
     setSelectedNodeId((current) => (current === initialFocus ? current : initialFocus))
-  }, [graph.nodes, initialFocus])
+  }, [effectiveGraph.nodes, initialFocus])
 
   useEffect(() => {
     onFocusChange?.(focusNodeId)
@@ -483,8 +593,15 @@ export function QuartzGraphView({
     if (!focusNodeId) {
       return undefined
     }
-    return buildRenderGraph(graph.nodes, graph.edges, focusNodeId, depth, variant)
-  }, [depth, focusNodeId, graph.edges, graph.nodes, variant])
+    return buildRenderGraph(
+      effectiveGraph.nodes,
+      effectiveGraph.edges,
+      focusNodeId,
+      depth,
+      variant,
+      workspaceOverlay.nodeOverlay,
+    )
+  }, [depth, effectiveGraph.edges, effectiveGraph.nodes, focusNodeId, variant, workspaceOverlay.nodeOverlay])
 
   const selectedNode =
     renderGraph?.nodes.find((node) => node.id === selectedNodeId) ??
@@ -521,7 +638,7 @@ export function QuartzGraphView({
       return undefined
     }
 
-    return graph.nodes.find((node) => {
+    return effectiveGraph.nodes.find((node) => {
       return (
         node.id === normalized ||
         node.label === normalized ||
