@@ -378,30 +378,133 @@ export async function getKnowledgeEvidence(
 
 export async function searchDocuments(sourceId: string, query: string) {
   const persisted = await tryReadPersisted(() => searchPersistedDocuments(sourceId, query))
-  if (persisted) {
-    return persisted
-  }
-
-  const snapshot = await getSnapshot(sourceId)
   const normalized = query.trim().toLowerCase()
 
   if (!normalized) {
-    return snapshot.documents.slice(0, 20)
+    if (persisted) {
+      return persisted.slice(0, 20)
+    }
+
+    return (await getSnapshot(sourceId)).documents.slice(0, 20)
   }
 
-  return snapshot.documents
-    .map((document) => {
-      let score = 0
-      if (document.title.toLowerCase().includes(normalized)) score += 6
-      if (document.summary.toLowerCase().includes(normalized)) score += 3
-      if (document.content.toLowerCase().includes(normalized)) score += 1
-      if (document.tags.some((tag) => tag.toLowerCase().includes(normalized))) score += 4
-      return { document, score }
-    })
+  if (persisted) {
+    return rankSearchResults(persisted, normalized)
+  }
+
+  const snapshot = await getSnapshot(sourceId)
+
+  return rankSearchResults(snapshot.documents, normalized)
+}
+
+function documentSearchScore(document: ParsedKnowledgeDocument, normalized: string) {
+  if (!normalized) {
+    return 0
+  }
+
+  let score = 0
+  if (document.title.toLowerCase().includes(normalized)) score += 6
+  if (document.summary.toLowerCase().includes(normalized)) score += 3
+  if (document.content.toLowerCase().includes(normalized)) score += 1
+  if (document.tags.some((tag) => tag.toLowerCase().includes(normalized))) score += 4
+  return score
+}
+
+function rankSearchResults(documents: ParsedKnowledgeDocument[], normalized: string) {
+  return documents
+    .map((document) => ({
+      document,
+      score: documentSearchScore(document, normalized),
+    }))
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score || b.document.updatedAt.localeCompare(a.document.updatedAt))
     .slice(0, 30)
     .map((item) => item.document)
+}
+
+export async function searchAcrossSources(
+  query: string,
+  input?: {
+    sourceIds?: string[]
+    limit?: number
+    limitPerSource?: number
+  },
+) {
+  const enabledSources = await listSources()
+  const allowedSourceIds = new Set(input?.sourceIds?.filter(Boolean))
+  const sources =
+    allowedSourceIds.size > 0
+      ? enabledSources.filter((source) => allowedSourceIds.has(source.id))
+      : enabledSources
+  const normalized = query.trim().toLowerCase()
+  const limit = Math.max(1, Math.min(input?.limit ?? 60, 200))
+  const limitPerSource = Math.max(1, Math.min(input?.limitPerSource ?? 20, 50))
+
+  const perSourceResults = await Promise.all(
+    sources.map(async (source) => {
+      try {
+        const documents = await searchDocuments(source.id, query)
+        return documents.slice(0, limitPerSource).map((document) => ({
+          source,
+          document,
+          score: documentSearchScore(document, normalized),
+        }))
+      } catch (error) {
+        return [
+          {
+            source,
+            document: null,
+            score: -1,
+            error: error instanceof Error ? error.message : "Unknown cross-source search error",
+          },
+        ]
+      }
+    }),
+  )
+
+  const failures = perSourceResults
+    .flat()
+    .filter(
+      (
+        item,
+      ): item is {
+        source: KnowledgeSource
+        document: null
+        score: number
+        error: string
+      } => item.document === null,
+    )
+    .map((item) => ({
+      source: item.source,
+      error: item.error,
+    }))
+
+  const items = perSourceResults
+    .flat()
+    .filter(
+      (
+        item,
+      ): item is {
+        source: KnowledgeSource
+        document: ParsedKnowledgeDocument
+        score: number
+      } => item.document !== null,
+    )
+    .sort((a, b) => {
+      if (a.score !== b.score) {
+        return b.score - a.score
+      }
+
+      return b.document.updatedAt.localeCompare(a.document.updatedAt)
+    })
+    .slice(0, limit)
+
+  return {
+    query,
+    sources,
+    items,
+    failures,
+  }
 }
 
 export async function getDocumentBySlug(sourceId: string, slug: string) {

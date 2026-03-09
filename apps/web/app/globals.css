@@ -339,7 +339,12 @@ a:hover {
   flex: 1;
 }
 
+.search-form select {
+  min-width: 180px;
+}
+
 .search-form input,
+.search-form select,
 .search-form button,
 .analysis-form input,
 .analysis-form button {
@@ -347,6 +352,10 @@ a:hover {
   border-radius: 14px;
   padding: 12px 14px;
   font: inherit;
+}
+
+.search-form-extended {
+  align-items: stretch;
 }
 
 .analysis-form input {

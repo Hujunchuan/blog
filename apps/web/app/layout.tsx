@@ -22,6 +22,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               </div>
               <nav className="site-nav">
                 <Link href="/">首页</Link>
+                <Link href="/search">跨源搜索</Link>
                 <Link href="/admin">管理台</Link>
               </nav>
             </div>

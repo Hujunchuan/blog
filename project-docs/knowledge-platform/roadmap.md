@@ -102,7 +102,9 @@ Status:
 
 - GitHub connector baseline is now in place for public repositories
 - source type `github` can now build snapshots through the existing connector factory
-- private repo auth, webhook sync, and cross-source search are still pending
+- `/search` now provides a first cross-source search page across enabled knowledge sources
+- private repo auth and webhook sync are still pending
+- cross-source search is now in baseline state, but source weighting, richer ranking, and federated filters are still pending
 
 ## Phase 4: Intelligence Layer
 
