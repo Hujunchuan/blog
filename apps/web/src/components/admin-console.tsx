@@ -3,6 +3,15 @@
 import { useRouter } from "next/navigation"
 import { FormEvent, useState, useTransition } from "react"
 
+type AdminSyncRun = {
+  id: string
+  status: string
+  started_at: string
+  finished_at: string | null
+  stats?: Record<string, unknown>
+  error_message?: string | null
+}
+
 type AdminSourceStatus = {
   id: string
   name: string
@@ -10,12 +19,7 @@ type AdminSourceStatus = {
   location: string
   description?: string
   persisted: boolean
-  latestSyncRun?: {
-    id: string
-    status: string
-    started_at: string
-    finished_at: string | null
-  } | null
+  latestSyncRun?: AdminSyncRun | null
   documentCount?: number
   tagCount?: number
   linkCount?: number
@@ -32,6 +36,14 @@ type GitHubSourceForm = {
 type ApiPayload = {
   status?: string
   message?: string
+}
+
+type SyncPayload = ApiPayload & {
+  sourceId?: string
+  syncRunId?: string
+  documentCount?: number
+  entityCount?: number
+  relationCount?: number
 }
 
 const emptyGitHubForm: GitHubSourceForm = {
@@ -67,6 +79,30 @@ function formatTimestamp(value?: string | null) {
   return new Date(value).toLocaleString("zh-CN")
 }
 
+function formatStat(value: unknown) {
+  if (typeof value === "number") {
+    return value
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : value
+  }
+  return 0
+}
+
+function syncStatusLabel(status?: string) {
+  switch (status) {
+    case "success":
+      return "成功"
+    case "failed":
+      return "失败"
+    case "running":
+      return "进行中"
+    default:
+      return "暂无"
+  }
+}
+
 export function AdminConsole({
   configured,
   dbStatus,
@@ -80,12 +116,28 @@ export function AdminConsole({
   const [message, setMessage] = useState<string>()
   const [pendingAction, startTransition] = useTransition()
   const [gitHubForm, setGitHubForm] = useState<GitHubSourceForm>(emptyGitHubForm)
+  const [lastSyncResult, setLastSyncResult] = useState<
+    | {
+        sourceId: string
+        syncRunId: string
+        documentCount: number
+        entityCount: number
+        relationCount: number
+        completedAt: string
+      }
+    | undefined
+  >()
 
-  const runAction = (label: string, action: () => Promise<void>) => {
+  const runAction = <T extends ApiPayload>(
+    label: string,
+    action: () => Promise<T>,
+    onSuccess?: (payload: T) => void,
+  ) => {
     startTransition(async () => {
       try {
         setMessage(`${label}处理中...`)
-        await action()
+        const payload = await action()
+        onSuccess?.(payload)
         setMessage(`${label}已完成`)
         router.refresh()
       } catch (error) {
@@ -109,6 +161,7 @@ export function AdminConsole({
         }),
       })
       setGitHubForm(emptyGitHubForm)
+      return { status: "ok" }
     })
   }
 
@@ -117,16 +170,14 @@ export function AdminConsole({
       <div className="panel-header">
         <div>
           <h2>运行管理</h2>
-          <p>这里用于初始化数据库、管理知识源，并触发手动同步。</p>
+          <p>这里用于初始化数据库、管理知识源，并查看最新同步结果。</p>
         </div>
         <div className="admin-actions">
           <button
             type="button"
             disabled={pendingAction || !configured}
             onClick={() =>
-              runAction("初始化数据库", async () => {
-                await callApi("/api/admin/db/init", { method: "POST" })
-              })
+              runAction("初始化数据库", async () => callApi("/api/admin/db/init", { method: "POST" }))
             }
           >
             初始化数据库
@@ -211,48 +262,122 @@ export function AdminConsole({
 
       {message ? <p className="admin-message">{message}</p> : null}
 
-      <div className="source-grid">
-        {sources.map((source) => (
-          <article className="source-card" key={source.id}>
+      {lastSyncResult ? (
+        <article className="result-card sync-result-card">
+          <div className="sync-result-header">
             <div>
-              <span className="source-type">{source.type}</span>
-              <h3>{source.name}</h3>
-              <p>{source.description ?? source.location}</p>
-              <p>{source.location}</p>
+              <h3>最近一次手动同步</h3>
+              <p>{lastSyncResult.sourceId}</p>
             </div>
-
-            <dl>
-              <div>
-                <dt>持久化</dt>
-                <dd>{source.persisted ? "已同步" : "未同步"}</dd>
-              </div>
-              <div>
-                <dt>文档</dt>
-                <dd>{source.documentCount ?? 0}</dd>
-              </div>
-              <div>
-                <dt>标签</dt>
-                <dd>{source.tagCount ?? 0}</dd>
-              </div>
-            </dl>
-
-            <p className="admin-meta">最近同步：{formatTimestamp(source.latestSyncRun?.finished_at)}</p>
-
-            <div className="admin-actions">
-              <button
-                type="button"
-                disabled={pendingAction || !configured}
-                onClick={() =>
-                  runAction(`同步 ${source.name}`, async () => {
-                    await callApi(`/api/admin/source/${source.id}/persist`, { method: "POST" })
-                  })
-                }
-              >
-                立即同步
-              </button>
+            <small>{formatTimestamp(lastSyncResult.completedAt)}</small>
+          </div>
+          <dl className="sync-stats">
+            <div>
+              <dt>Sync Run</dt>
+              <dd>{lastSyncResult.syncRunId}</dd>
             </div>
-          </article>
-        ))}
+            <div>
+              <dt>文档</dt>
+              <dd>{lastSyncResult.documentCount}</dd>
+            </div>
+            <div>
+              <dt>实体</dt>
+              <dd>{lastSyncResult.entityCount}</dd>
+            </div>
+            <div>
+              <dt>关系</dt>
+              <dd>{lastSyncResult.relationCount}</dd>
+            </div>
+          </dl>
+        </article>
+      ) : null}
+
+      <div className="source-grid">
+        {sources.map((source) => {
+          const latestSyncRun = source.latestSyncRun ?? null
+          const latestStats = latestSyncRun?.stats ?? {}
+
+          return (
+            <article className="source-card" key={source.id}>
+              <div>
+                <div className="source-card-header">
+                  <span className="source-type">{source.type}</span>
+                  <span className={`sync-status sync-status-${latestSyncRun?.status ?? "idle"}`}>
+                    {syncStatusLabel(latestSyncRun?.status)}
+                  </span>
+                </div>
+                <h3>{source.name}</h3>
+                <p>{source.description ?? source.location}</p>
+                <p>{source.location}</p>
+              </div>
+
+              <dl>
+                <div>
+                  <dt>持久化</dt>
+                  <dd>{source.persisted ? "已同步" : "未同步"}</dd>
+                </div>
+                <div>
+                  <dt>文档</dt>
+                  <dd>{source.documentCount ?? 0}</dd>
+                </div>
+                <div>
+                  <dt>标签</dt>
+                  <dd>{source.tagCount ?? 0}</dd>
+                </div>
+              </dl>
+
+              <div className="sync-run-summary">
+                <p className="admin-meta">最近同步：{formatTimestamp(latestSyncRun?.finished_at ?? latestSyncRun?.started_at)}</p>
+                {latestSyncRun ? (
+                  <dl className="sync-inline-stats">
+                    <div>
+                      <dt>文档</dt>
+                      <dd>{formatStat(latestStats.documentCount ?? source.documentCount)}</dd>
+                    </div>
+                    <div>
+                      <dt>实体</dt>
+                      <dd>{formatStat(latestStats.entityCount)}</dd>
+                    </div>
+                    <div>
+                      <dt>关系</dt>
+                      <dd>{formatStat(latestStats.relationCount)}</dd>
+                    </div>
+                  </dl>
+                ) : null}
+                {latestSyncRun?.error_message ? (
+                  <p className="sync-error">最近失败原因：{latestSyncRun.error_message}</p>
+                ) : null}
+              </div>
+
+              <div className="admin-actions">
+                <button
+                  type="button"
+                  disabled={pendingAction || !configured}
+                  onClick={() =>
+                    runAction<SyncPayload>(
+                      `同步 ${source.name}`,
+                      async () => callApi<SyncPayload>(`/api/admin/source/${source.id}/persist`, { method: "POST" }),
+                      (payload) => {
+                        if (payload.sourceId && payload.syncRunId) {
+                          setLastSyncResult({
+                            sourceId: payload.sourceId,
+                            syncRunId: payload.syncRunId,
+                            documentCount: payload.documentCount ?? 0,
+                            entityCount: payload.entityCount ?? 0,
+                            relationCount: payload.relationCount ?? 0,
+                            completedAt: new Date().toISOString(),
+                          })
+                        }
+                      },
+                    )
+                  }
+                >
+                  立即同步
+                </button>
+              </div>
+            </article>
+          )
+        })}
       </div>
     </section>
   )

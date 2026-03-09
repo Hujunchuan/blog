@@ -1236,6 +1236,88 @@ a:hover {
   color: var(--muted);
 }
 
+.sync-result-card,
+.sync-run-summary {
+  display: grid;
+  gap: 12px;
+}
+
+.sync-result-header,
+.source-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sync-result-header h3,
+.source-card-header h3 {
+  margin: 0;
+}
+
+.sync-result-header p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.sync-stats,
+.sync-inline-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sync-inline-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.sync-stats dt,
+.sync-inline-stats dt {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.sync-stats dd,
+.sync-inline-stats dd {
+  margin: 4px 0 0;
+  font-size: 1rem;
+}
+
+.sync-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  border: 1px solid var(--panel-border);
+  color: var(--muted);
+  background: var(--panel-bg);
+}
+
+.sync-status-success {
+  color: #1b7f4f;
+  border-color: rgba(27, 127, 79, 0.25);
+  background: rgba(27, 127, 79, 0.08);
+}
+
+.sync-status-failed {
+  color: #b54747;
+  border-color: rgba(181, 71, 71, 0.25);
+  background: rgba(181, 71, 71, 0.08);
+}
+
+.sync-status-running {
+  color: #9c640c;
+  border-color: rgba(156, 100, 12, 0.25);
+  background: rgba(156, 100, 12, 0.08);
+}
+
+.sync-error {
+  margin: 0;
+  color: #b54747;
+  font-size: 0.9rem;
+}
+
 @media (max-width: 980px) {
   .site-header-row,
   .hero,

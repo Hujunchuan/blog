@@ -54,7 +54,7 @@ export default async function AdminPage() {
         <div>
           <p className="eyebrow">Admin</p>
           <h1>动态知识平台管理台</h1>
-          <p className="lead">这里用于初始化数据库、查看知识源状态，并添加新的 GitHub 知识源。</p>
+          <p className="lead">这里用于初始化数据库、查看知识源状态，并通过管理台添加和同步 GitHub 知识源。</p>
         </div>
         <div className="hero-card">
           <span>当前阶段</span>
