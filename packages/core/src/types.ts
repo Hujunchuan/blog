@@ -1,5 +1,16 @@
 export type SourceType = "local" | "github" | "server"
 
+export interface GitHubSourceSettings {
+  branch?: string
+  tokenEnv?: string
+  cacheDir?: string
+}
+
+export interface KnowledgeSourceSettings {
+  ignorePatterns?: string[]
+  github?: GitHubSourceSettings
+}
+
 export interface KnowledgeSource {
   id: string
   name: string
@@ -7,9 +18,7 @@ export interface KnowledgeSource {
   location: string
   enabled: boolean
   description?: string
-  settings?: {
-    ignorePatterns?: string[]
-  }
+  settings?: KnowledgeSourceSettings
 }
 
 export interface SourceDocument {

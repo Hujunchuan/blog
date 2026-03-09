@@ -33,7 +33,7 @@ Next:
 
 1. improve persisted projections for graph and Explorer
 2. move watcher behavior toward incremental sync
-3. prepare the GitHub connector baseline
+3. expand the GitHub connector from baseline to operational sync
 
 ## Phase 2.5: Nervous System Baseline
 
@@ -67,6 +67,12 @@ Next:
 - remote server connector
 - incremental sync
 - cross-source search
+
+Status:
+
+- GitHub connector baseline is now in place for public repositories
+- source type `github` can now build snapshots through the existing connector factory
+- private repo auth, webhook sync, and cross-source search are still pending
 
 ## Phase 4: Intelligence Layer
 

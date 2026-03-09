@@ -1,4 +1,5 @@
 import { KnowledgeConnector, KnowledgeSource } from "../../core/src"
+import { GitHubConnector } from "./githubConnector"
 import { LocalFileConnector } from "./localConnector"
 
 export function createKnowledgeConnector(source: KnowledgeSource): KnowledgeConnector {
@@ -6,6 +7,7 @@ export function createKnowledgeConnector(source: KnowledgeSource): KnowledgeConn
     case "local":
       return new LocalFileConnector(source)
     case "github":
+      return new GitHubConnector(source)
     case "server":
       throw new Error(`Connector not implemented yet for source type: ${source.type}`)
     default:

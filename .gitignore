@@ -10,5 +10,6 @@ private/
 .env.local
 apps/web/.env.local
 apps/web/.next
+apps/web/.cache
 .replit
 replit.nix
