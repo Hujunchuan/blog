@@ -421,6 +421,8 @@ export async function createWorkspaceEdge(input: CreateWorkspaceEdgeInput) {
       ],
     )
 
+    await client.query(`UPDATE workspace_views SET updated_at = NOW() WHERE id = $1`, [input.workspaceViewId])
+
     return mapWorkspaceEdgeRow(result.rows[0])
   })
 }
@@ -456,6 +458,8 @@ export async function createWorkspaceAnnotation(input: CreateWorkspaceAnnotation
         JSON.stringify(input.metadata ?? {}),
       ],
     )
+
+    await client.query(`UPDATE workspace_views SET updated_at = NOW() WHERE id = $1`, [input.workspaceViewId])
 
     return mapWorkspaceAnnotationRow(result.rows[0])
   })

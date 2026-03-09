@@ -52,6 +52,7 @@ type GraphNodeData = KnowledgeGraphNode &
     radius: number
     color: string
     pinned: boolean
+    workspaceNodeId?: string
   }
 
 type GraphLinkData = SimulationLinkDatum<GraphNodeData> & {
@@ -82,6 +83,7 @@ type WorkspaceOverlayResult = {
     edges: KnowledgeGraphEdge[]
   }
   nodeOverlay: Map<string, WorkspaceNodeOverlay>
+  workspaceNodeMap: Map<string, WorkspaceView["nodes"][number]>
 }
 
 type WorkspaceCreateResponse = {
@@ -154,17 +156,20 @@ function mergeGraphWithWorkspace(
     return {
       graph,
       nodeOverlay: new Map(),
+      workspaceNodeMap: new Map(),
     }
   }
 
   const nodes = new Map(graph.nodes.map((node) => [node.id, node]))
   const edges = [...graph.edges]
   const nodeOverlay = new Map<string, WorkspaceNodeOverlay>()
+  const workspaceNodeIndex = new Map<string, WorkspaceView["nodes"][number]>()
   const workspaceNodeMap = new Map<string, string>()
 
   for (const workspaceNode of workspace.nodes) {
     const graphNodeId = workspaceGraphNodeId(workspace, workspaceNode)
     workspaceNodeMap.set(workspaceNode.id, graphNodeId)
+    workspaceNodeIndex.set(graphNodeId, workspaceNode)
     nodeOverlay.set(graphNodeId, {
       x: workspaceNode.x,
       y: workspaceNode.y,
@@ -212,6 +217,7 @@ function mergeGraphWithWorkspace(
       edges,
     },
     nodeOverlay,
+    workspaceNodeMap: workspaceNodeIndex,
   }
 }
 
@@ -392,6 +398,7 @@ function buildRenderGraph(
   depth: Depth,
   variant: GraphVariant,
   nodeOverlay: Map<string, WorkspaceNodeOverlay>,
+  workspaceNodeMap: Map<string, WorkspaceView["nodes"][number]>,
 ) {
   const nodeIds = new Set(nodes.map((node) => node.id))
   const adjacency = buildAdjacency(edges, nodeIds)
@@ -439,6 +446,7 @@ function buildRenderGraph(
           (node.id === focusNodeId ? 12 : 7.5) + Math.min(node.weight, 10) * (node.id === focusNodeId ? 0.35 : 0.18),
         color: colorForGroup(node.group),
         pinned: Boolean(overlay?.pinned),
+        workspaceNodeId: workspaceNodeMap.get(node.id)?.id,
         x,
         y,
         fx: overlay?.pinned && typeof x === "number" ? x : undefined,
@@ -569,10 +577,13 @@ export function QuartzGraphView({
   const [workspaceName, setWorkspaceName] = useState("")
   const [workspaceMessage, setWorkspaceMessage] = useState<string>()
   const [workspaceSaving, setWorkspaceSaving] = useState(false)
+  const [noteBody, setNoteBody] = useState("")
+  const [relationTarget, setRelationTarget] = useState("")
   const [rendererReadyTick, setRendererReadyTick] = useState(0)
   const workspaceOverlay = useMemo(() => mergeGraphWithWorkspace(graph, workspace), [graph, workspace])
   const effectiveGraph = workspaceOverlay.graph
   const graphPickerId = useId()
+  const relationPickerId = useId()
   const defaultFocusNodeId = useMemo(() => {
     if (initialFocus && effectiveGraph.nodes.some((node) => node.id === initialFocus)) {
       return initialFocus
@@ -648,8 +659,17 @@ export function QuartzGraphView({
       depth,
       variant,
       workspaceOverlay.nodeOverlay,
+      workspaceOverlay.workspaceNodeMap,
     )
-  }, [depth, effectiveGraph.edges, effectiveGraph.nodes, focusNodeId, variant, workspaceOverlay.nodeOverlay])
+  }, [
+    depth,
+    effectiveGraph.edges,
+    effectiveGraph.nodes,
+    focusNodeId,
+    variant,
+    workspaceOverlay.nodeOverlay,
+    workspaceOverlay.workspaceNodeMap,
+  ])
 
   const selectedNode =
     renderGraph?.nodes.find((node) => node.id === selectedNodeId) ??
@@ -671,6 +691,28 @@ export function QuartzGraphView({
       .slice(0, 8)
   }, [renderGraph, selectedNode])
 
+  const selectedAnnotations = useMemo(() => {
+    if (!workspace || !selectedNode?.workspaceNodeId) {
+      return []
+    }
+
+    return workspace.annotations
+      .filter((annotation) => annotation.workspaceNodeId === selectedNode.workspaceNodeId)
+      .slice(-4)
+      .reverse()
+  }, [selectedNode?.workspaceNodeId, workspace])
+
+  const relationOptions = useMemo(() => {
+    if (!renderGraph || !selectedNode) {
+      return []
+    }
+
+    return renderGraph.nodes
+      .filter((node) => node.id !== selectedNode.id && Boolean(node.workspaceNodeId))
+      .sort((left, right) => right.weight - left.weight || left.label.localeCompare(right.label, "zh-CN"))
+      .slice(0, 120)
+  }, [renderGraph, selectedNode])
+
   useEffect(() => {
     if (workspace) {
       setWorkspaceName(workspace.name)
@@ -679,6 +721,11 @@ export function QuartzGraphView({
 
     setWorkspaceName((current) => current || buildWorkspaceSeedName(mode, selectedNode ?? rootNode))
   }, [mode, rootNode, selectedNode, workspace])
+
+  useEffect(() => {
+    setNoteBody("")
+    setRelationTarget("")
+  }, [selectedNode?.id])
 
   const focusNode = (nodeId: string | undefined) => {
     if (!nodeId) {
@@ -923,6 +970,110 @@ export function QuartzGraphView({
       setWorkspaceMessage(
         error instanceof Error ? error.message : selectedNode.pinned ? "释放节点失败" : "固定节点失败",
       )
+    } finally {
+      setWorkspaceSaving(false)
+    }
+  }
+
+  const resolveRelationTarget = (query: string) => {
+    const normalized = query.trim()
+    if (!normalized || !renderGraph) {
+      return undefined
+    }
+
+    return renderGraph.nodes.find((node) => {
+      return (
+        node.id === normalized ||
+        node.label === normalized ||
+        node.slug === normalized ||
+        node.entityKey === normalized
+      )
+    })
+  }
+
+  const handleCreateNote = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!workspace || !selectedNode?.workspaceNodeId || workspaceSaving) {
+      return
+    }
+
+    const body = noteBody.trim()
+    if (!body) {
+      return
+    }
+
+    setWorkspaceSaving(true)
+    setWorkspaceMessage("正在保存节点备注...")
+    try {
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(workspace.id)}/notes`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          workspaceNodeId: selectedNode.workspaceNodeId,
+          body,
+          kind: "note",
+        }),
+      })
+
+      const payload = (await response.json().catch(() => ({}))) as { message?: string }
+      if (!response.ok) {
+        throw new Error(payload.message || "保存节点备注失败")
+      }
+
+      setWorkspaceMessage("节点备注已保存")
+      setNoteBody("")
+      router.refresh()
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "保存节点备注失败")
+    } finally {
+      setWorkspaceSaving(false)
+    }
+  }
+
+  const handleCreateRelation = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!workspace || !selectedNode?.workspaceNodeId || workspaceSaving) {
+      return
+    }
+
+    const targetNode = resolveRelationTarget(relationTarget)
+    if (!targetNode?.workspaceNodeId) {
+      setWorkspaceMessage("请选择当前工作台中已存在的目标节点")
+      return
+    }
+
+    setWorkspaceSaving(true)
+    setWorkspaceMessage("正在创建手工关系...")
+    try {
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(workspace.id)}/relations`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          fromNodeId: selectedNode.workspaceNodeId,
+          toNodeId: targetNode.workspaceNodeId,
+          edgeType: "manual",
+          weight: 1,
+          metadata: {
+            fromGraphId: selectedNode.id,
+            toGraphId: targetNode.id,
+          },
+        }),
+      })
+
+      const payload = (await response.json().catch(() => ({}))) as { message?: string }
+      if (!response.ok) {
+        throw new Error(payload.message || "创建手工关系失败")
+      }
+
+      setWorkspaceMessage("手工关系已创建")
+      setRelationTarget("")
+      router.refresh()
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "创建手工关系失败")
     } finally {
       setWorkspaceSaving(false)
     }
@@ -1620,6 +1771,65 @@ export function QuartzGraphView({
               {selectedConnections.length === 0 && <div className="empty-state">当前视图中没有可见邻居。</div>}
             </div>
           </div>
+
+          {workspace && variant === "local" && selectedNode.workspaceNodeId && (
+            <div className="result-card">
+              <h3>节点备注</h3>
+              <form className="graph-stack-form" onSubmit={handleCreateNote}>
+                <textarea
+                  className="graph-note-input"
+                  value={noteBody}
+                  onChange={(event) => setNoteBody(event.target.value)}
+                  placeholder="为当前节点补充备注"
+                  rows={3}
+                />
+                <div className="action-row">
+                  <button type="submit" className="graph-inline-button" disabled={workspaceSaving || !noteBody.trim()}>
+                    保存备注
+                  </button>
+                </div>
+              </form>
+              <div className="result-list">
+                {selectedAnnotations.map((annotation) => (
+                  <div key={annotation.id} className="graph-note-card">
+                    <p>{annotation.body}</p>
+                    <small>{annotation.createdAt}</small>
+                  </div>
+                ))}
+                {selectedAnnotations.length === 0 && <div className="empty-state">当前节点还没有备注。</div>}
+              </div>
+            </div>
+          )}
+
+          {workspace && variant === "local" && selectedNode.workspaceNodeId && (
+            <div className="result-card">
+              <h3>手工关系</h3>
+              <form className="graph-stack-form" onSubmit={handleCreateRelation}>
+                <input
+                  type="text"
+                  className="graph-focus-input"
+                  list={relationPickerId}
+                  value={relationTarget}
+                  onChange={(event) => setRelationTarget(event.target.value)}
+                  placeholder="选择一个当前工作台节点"
+                />
+                <datalist id={relationPickerId}>
+                  {relationOptions.map((node) => (
+                    <option key={node.id} value={node.label} />
+                  ))}
+                </datalist>
+                <div className="action-row">
+                  <button
+                    type="submit"
+                    className="graph-inline-button"
+                    disabled={workspaceSaving || !relationTarget.trim()}
+                  >
+                    添加关系
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
         </div>
       )}
     </div>

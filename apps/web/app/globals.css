@@ -891,6 +891,47 @@ a:hover {
   gap: 8px;
 }
 
+.graph-stack-form {
+  display: grid;
+  gap: 10px;
+}
+
+.graph-note-input {
+  width: 100%;
+  min-height: 88px;
+  padding: 10px 13px;
+  border-radius: 16px;
+  border: 1px solid rgba(91, 76, 52, 0.14);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+  outline: none;
+}
+
+.graph-note-input:focus {
+  border-color: rgba(23, 76, 91, 0.32);
+  box-shadow: 0 0 0 4px rgba(23, 76, 91, 0.08);
+}
+
+.graph-note-card {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(91, 76, 52, 0.1);
+}
+
+.graph-note-card p,
+.graph-note-card small {
+  margin: 0;
+}
+
+.graph-note-card small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+}
+
 .graph-inline-link {
   display: inline-flex;
   align-items: center;

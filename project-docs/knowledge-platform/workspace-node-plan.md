@@ -310,9 +310,9 @@ The first workspace-node phase is complete when:
 - saved workspaces can be reopened immediately on the graph page through the existing `workspace` overlay flow
 - an existing workspace can now be refreshed from the current visible subgraph
 - focused graph nodes can now be pinned or released through the same workspace capture update flow
+- node notes can now be created from the graph detail panel
+- manual workspace relations can now be created from the graph detail panel
 
 ## Remaining W3 Gaps
 
-- manual notes are not yet writable from the graph page
-- manual relations are not yet writable from the graph page
-- workspace editing still works as full capture replacement, not fine-grained node mutation
+- workspace editing still works as full capture replacement for layout and pin changes, not fine-grained node mutation
