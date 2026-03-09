@@ -191,3 +191,123 @@ export interface KnowledgeSnapshot {
   }
   overview: KnowledgeOverview
 }
+
+export type WorkspaceLayoutMode = "local" | "global"
+
+export type WorkspaceNodeType = "entity" | "document" | "synthetic" | "reference"
+
+export type WorkspaceEdgeType = "manual" | "curated" | "derived"
+
+export type WorkspaceAnnotationKind = "note" | "hypothesis" | "todo" | "cluster"
+
+export interface WorkspaceSourceScope {
+  sourceIds: string[]
+}
+
+export interface WorkspaceViewSummary {
+  id: string
+  name: string
+  description?: string
+  sourceScope: WorkspaceSourceScope
+  layoutMode: WorkspaceLayoutMode
+  owner?: string
+  metadata?: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+export interface WorkspaceNode {
+  id: string
+  workspaceViewId: string
+  nodeType: WorkspaceNodeType
+  entityKey?: string
+  documentSlug?: string
+  referenceUrl?: string
+  label: string
+  x: number
+  y: number
+  pinned: boolean
+  collapsed: boolean
+  metadata?: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+export interface WorkspaceEdge {
+  id: string
+  workspaceViewId: string
+  fromNodeId: string
+  toNodeId: string
+  edgeType: WorkspaceEdgeType
+  weight: number
+  sourceRelationKey?: string
+  metadata?: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+export interface WorkspaceAnnotation {
+  id: string
+  workspaceViewId: string
+  workspaceNodeId?: string
+  body: string
+  kind: WorkspaceAnnotationKind
+  metadata?: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+export interface WorkspaceView extends WorkspaceViewSummary {
+  nodes: WorkspaceNode[]
+  edges: WorkspaceEdge[]
+  annotations: WorkspaceAnnotation[]
+}
+
+export interface CreateWorkspaceViewInput {
+  name: string
+  description?: string
+  sourceScope: WorkspaceSourceScope
+  layoutMode?: WorkspaceLayoutMode
+  owner?: string
+  metadata?: Record<string, unknown>
+}
+
+export interface CreateWorkspaceNodeInput {
+  workspaceViewId: string
+  nodeType: WorkspaceNodeType
+  entityKey?: string
+  documentSlug?: string
+  referenceUrl?: string
+  label: string
+  x?: number
+  y?: number
+  pinned?: boolean
+  collapsed?: boolean
+  metadata?: Record<string, unknown>
+}
+
+export interface UpdateWorkspaceNodeLayoutInput {
+  nodeId: string
+  x: number
+  y: number
+  pinned?: boolean
+  collapsed?: boolean
+}
+
+export interface CreateWorkspaceEdgeInput {
+  workspaceViewId: string
+  fromNodeId: string
+  toNodeId: string
+  edgeType?: WorkspaceEdgeType
+  weight?: number
+  sourceRelationKey?: string
+  metadata?: Record<string, unknown>
+}
+
+export interface CreateWorkspaceAnnotationInput {
+  workspaceViewId: string
+  workspaceNodeId?: string
+  body: string
+  kind?: WorkspaceAnnotationKind
+  metadata?: Record<string, unknown>
+}

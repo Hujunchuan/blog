@@ -237,6 +237,7 @@ That is the real upgrade we want to borrow from Neurite.
 
 - add workspace tables
 - keep all existing knowledge APIs unchanged
+- add repository-level create / list / get / layout update primitives
 - no UI required yet
 
 ### Milestone W2: Workspace Read Overlay
@@ -270,3 +271,16 @@ The first workspace-node phase is complete when:
 - at least one focused node arrangement can be saved and reopened
 - manual notes can be attached without editing Markdown
 - the existing nervous-system APIs remain stable
+
+## Current W1 Scope Landed
+
+- workspace types are now defined in `packages/core`
+- workspace tables are now part of the PostgreSQL schema bootstrap
+- repository-level primitives are in place for:
+  - create workspace view
+  - list workspace views
+  - read full workspace view
+  - create workspace node
+  - update node layout
+  - create workspace edge
+  - create workspace annotation

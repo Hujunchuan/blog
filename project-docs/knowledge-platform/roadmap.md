@@ -72,7 +72,8 @@ Next:
 Status:
 
 - technical design is now defined
-- implementation has not started yet
+- `W1` schema and repository primitives are now in place
+- graph overlay UI has not started yet
 
 Milestones:
 
