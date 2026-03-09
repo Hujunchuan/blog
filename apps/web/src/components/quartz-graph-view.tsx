@@ -712,6 +712,7 @@ export function QuartzGraphView({
         }
       })
 
+      applyLabelCulling()
       scheduleRender()
     }
 
@@ -763,6 +764,71 @@ export function QuartzGraphView({
         return isProminent ? 0.58 : 0.12
       }
       return isProminent ? 0.34 : 0.04
+    }
+
+    const applyLabelCulling = () => {
+      const activeNodeId = hoveredNodeIdRef.current ?? selectedNodeIdRef.current ?? focusNodeId
+      const neighbors = activeNodeId ? adjacencyRef.current.get(activeNodeId) ?? new Set<string>() : new Set<string>()
+      const zoom = viewRef.current.scale
+      const placed: Array<{ left: number; right: number; top: number; bottom: number }> = []
+
+      const candidates = Array.from(nodeRenderRef.current.values())
+        .map(({ node, label }) => {
+          const isActive = node.id === activeNodeId
+          const isNeighbor = neighbors.has(node.id)
+          const isAnchor = node.id === focusNodeId
+          const isProminent = isAnchor || node.group === "root" || node.weight >= (variant === "global" ? 9 : 6)
+
+          return {
+            node,
+            label,
+            baseAlpha: labelAlphaForNode({ isActive, isNeighbor, isAnchor, isProminent }),
+            priority: isActive ? 5 : isAnchor ? 4 : isNeighbor ? 3 : isProminent ? 2 : 1,
+          }
+        })
+        .sort((left, right) => {
+          if (left.priority !== right.priority) {
+            return right.priority - left.priority
+          }
+          if (left.baseAlpha !== right.baseAlpha) {
+            return right.baseAlpha - left.baseAlpha
+          }
+          return right.node.weight - left.node.weight
+        })
+
+      for (const { label, baseAlpha } of candidates) {
+        if (baseAlpha <= 0.02) {
+          label.alpha = 0
+          continue
+        }
+
+        const width = Math.max(42, label.width * zoom + 10)
+        const height = Math.max(16, label.height * zoom + 6)
+        const screenX = label.position.x * zoom + viewRef.current.x
+        const screenY = label.position.y * zoom + viewRef.current.y
+        const rect = {
+          left: screenX - width / 2,
+          right: screenX + width / 2,
+          top: screenY - height,
+          bottom: screenY,
+        }
+
+        const overlaps = placed.some(
+          (existing) =>
+            rect.left < existing.right &&
+            rect.right > existing.left &&
+            rect.top < existing.bottom &&
+            rect.bottom > existing.top,
+        )
+
+        if (overlaps) {
+          label.alpha = 0
+          continue
+        }
+
+        label.alpha = baseAlpha
+        placed.push(rect)
+      }
     }
 
     const applyHighlight = () => {
