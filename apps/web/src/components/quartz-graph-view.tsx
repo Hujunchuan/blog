@@ -578,6 +578,7 @@ export function QuartzGraphView({
 
         world.position.set(viewRef.current.x, viewRef.current.y)
         world.scale.set(viewRef.current.scale)
+        applyHighlightRef.current?.()
         scheduleRender()
       }
 
@@ -721,6 +722,49 @@ export function QuartzGraphView({
       fontWeight: "500",
     })
 
+    const labelAlphaForNode = ({
+      isActive,
+      isNeighbor,
+      isAnchor,
+      isProminent,
+    }: {
+      isActive: boolean
+      isNeighbor: boolean
+      isAnchor: boolean
+      isProminent: boolean
+    }) => {
+      const zoom = viewRef.current.scale
+      if (isActive) {
+        return 1
+      }
+
+      if (isNeighbor) {
+        return zoom >= 1.1 ? 0.92 : 0.82
+      }
+
+      if (isAnchor) {
+        return zoom >= 1 ? 0.88 : 0.72
+      }
+
+      if (variant === "global") {
+        if (zoom >= 1.55) {
+          return isProminent ? 0.72 : 0.18
+        }
+        if (zoom >= 1.2) {
+          return isProminent ? 0.46 : 0.08
+        }
+        return isProminent ? 0.2 : 0
+      }
+
+      if (zoom >= 1.45) {
+        return isProminent ? 0.82 : 0.22
+      }
+      if (zoom >= 1.1) {
+        return isProminent ? 0.58 : 0.12
+      }
+      return isProminent ? 0.34 : 0.04
+    }
+
     const applyHighlight = () => {
       const activeNodeId = hoveredNodeIdRef.current ?? selectedNodeIdRef.current ?? focusNodeId
       const neighbors = activeNodeId ? adjacencyRef.current.get(activeNodeId) ?? new Set<string>() : new Set<string>()
@@ -734,7 +778,7 @@ export function QuartzGraphView({
         gfx.alpha = dimmed ? 0.22 : isNeighbor ? 0.94 : 1
         gfx.scale.set(isActive ? 1.12 : isNeighbor ? 1.05 : isAnchor ? 1.03 : 1)
         drawNode(gfx, node.radius, node.color, isActive || isAnchor, isAnchor)
-        label.alpha = isActive ? 1 : isNeighbor ? 0.82 : isProminent ? (variant === "global" ? 0.26 : 0.42) : 0.04
+        label.alpha = labelAlphaForNode({ isActive, isNeighbor, isAnchor, isProminent })
       })
 
       for (const { edge, gfx } of edgeRenderRef.current) {
