@@ -74,6 +74,7 @@ The UI should evolve from a plain document graph toward a typed knowledge view w
 - relation-type pivots
 - evidence drill-down
 - local impact exploration
+- later a workspace-node layer for saved graph views, pinned nodes, annotations, and manual overlays
 
 ## Phased Rollout
 
@@ -133,6 +134,18 @@ Prepare future tool interfaces such as:
 - `analyze_impact`
 - `trace_process`
 
+### Phase F: Workspace Node Layer
+
+Add a Neurite-inspired workspace layer without copying its UI stack directly.
+
+This phase should introduce:
+
+- saved graph workspaces
+- pinned node state
+- manual annotations
+- manual overlay relations
+- later multi-source workspace views
+
 ## Current Scope Already Landed
 
 - nervous-system schema is in place
@@ -153,3 +166,4 @@ Prepare future tool interfaces such as:
 2. Add more frontend pivots around entity types and evidence links.
 3. Keep the nervous-system layer compatible with future GitHub and remote-server connectors.
 4. Improve extraction quality further with source-aware rules instead of broad title heuristics.
+5. Introduce a workspace-node layer so graph views can become persistent investigation surfaces instead of read-only projections.

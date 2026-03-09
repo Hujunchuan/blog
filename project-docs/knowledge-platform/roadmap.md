@@ -61,6 +61,27 @@ Next:
 2. prepare the first GitHub connector baseline
 3. add richer evidence bundles and multi-root comparisons into the analysis page
 
+## Phase 2.6: Workspace Node Layer
+
+- workspace view schema
+- saved graph layouts
+- pinned nodes
+- node annotations
+- manual overlay relations
+
+Status:
+
+- technical design is now defined
+- implementation has not started yet
+
+Milestones:
+
+1. `W1` add workspace tables and repository interfaces
+2. `W2` load workspace overlays on top of the current graph page
+3. `W3` support save view / pin node / add note / add manual relation
+4. `W4` extend workspace scope from single source to multi-source
+5. `W5` expose workspace APIs to future AI and tool layers
+
 ## Phase 3: Multi-Source Federation
 
 - GitHub connector
