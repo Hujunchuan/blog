@@ -14,14 +14,14 @@ jobs:
       id-token: write
     steps:
       - name: Clone Knowledge Base
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: Hujunchuan/HuJunchuanKnowledgeBase
           path: content
           token: ${{ secrets.GH_TOKEN }}
           
       - name: Checkout Quartz files
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           sparse-checkout: |
             quartz
@@ -35,7 +35,7 @@ jobs:
           sparse-checkout-cone-mode: false
           
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '22'
           
@@ -46,7 +46,7 @@ jobs:
         run: npx quartz build
           
       - name: Deploy
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GH_TOKEN }}
           publish_dir: ./public
